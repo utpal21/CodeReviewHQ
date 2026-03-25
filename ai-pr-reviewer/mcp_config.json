@@ -1,0 +1,17 @@
+{
+    "mcpServers": {
+        "ai-pr-reviewer": {
+            "command": "node",
+            "args": [
+                "dist/index.js"
+            ],
+            "cwd": "/Users/utpal/Projects/SmartEnergySolution/CodeReviewHQ/ai-pr-reviewer",
+            "env": {
+                "GITHUB_TOKEN": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "GITHUB_OWNER": "your-username",
+                "GITHUB_REPO": "your-repo",
+                "NODE_ENV": "development"
+            }
+        }
+    }
+}
