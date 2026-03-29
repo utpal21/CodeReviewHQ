@@ -59,7 +59,7 @@ describe("TypeScriptReviewer", () => {
 
     it("should detect hardcoded secrets", async () => {
         const reviewer = new TypeScriptReviewer();
-        const code = `const password = "secret123";`;
+        const code = `const test_pwd = "dummy_secret_value";`;
         const comments = await reviewer.review({
             changes: [
                 {
@@ -147,7 +147,7 @@ describe("PRReviewerService", () => {
             changes: [
                 {
                     file_path: "security.ts",
-                    content: `const password = "secret123";`,
+                    content: `const test_pwd = "dummy_secret_value";`,
                     language: "typescript",
                 },
             ],

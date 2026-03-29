@@ -161,9 +161,7 @@ export class UniversalReviewer extends BaseReviewer {
 
     private hasHardcodedSecret(line: string): boolean {
         const secretPatterns = [
-            /password\s*[=:]\s*['"`][^'"`]+['"`]/i,
-            /api[_-]?key\s*[=:]\s*['"`][^'"`]+['"`]/i,
-            /secret\s*[=:]\s*['"`][^'"`]+['"`]/i,
+            /\b(password|pwd|secret|api[_-]?key)\s*[=:]\s*['"`][^'"`]+['"`]/i,
             /token\s*[=:]\s*['"`][^'"`]{15,}['"`]/i,
         ];
         return secretPatterns.some(p => p.test(line));

@@ -203,9 +203,7 @@ export class TypeScriptReviewer extends BaseReviewer {
      */
     private hasHardcodedSecret(line: string): boolean {
         const patterns = [
-            /password\s*=\s*['"`][^'"`]+['"`]/i,
-            /api[_-]?key\s*=\s*['"`][^'"`]+['"`]/i,
-            /secret\s*=\s*['"`][^'"`]+['"`]/i,
+            /\b(password|pwd|secret|api[_-]?key)\s*=\s*['"`][^'"`]+['"`]/i,
             /token\s*=\s*['"`][^'"`]{20,}['"`]/i,
         ];
 

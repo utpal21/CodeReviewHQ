@@ -165,14 +165,12 @@ export class PythonReviewer extends BaseReviewer {
     }
 
     private hasHardcodedSecret(line: string): boolean {
-        const patterns = [
-            /password\s*=\s*['"`][^'"`]+['"`]/i,
-            /api[_-]?key\s*=\s*['"`][^'"`]+['"`]/i,
-            /secret\s*=\s*['"`][^'"`]+['"`]/i,
+        const secretPatterns = [
+            /\b(password|pwd|secret|api[_-]?key)\s*=\s*['"`][^'"`]+['"`]/i,
             /token\s*=\s*['"`][^'"`]{20,}['"`]/i,
         ];
 
-        return patterns.some((pattern) => pattern.test(line)) && !line.trim().startsWith("#");
+        return secretPatterns.some((pattern) => pattern.test(line)) && !line.trim().startsWith("#");
     }
 
     private isFunctionDef(line: string): boolean {
