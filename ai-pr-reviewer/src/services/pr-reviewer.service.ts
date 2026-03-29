@@ -142,10 +142,10 @@ export class PRReviewerService {
 
         // Add decision-specific messages
         if (analysis.decision === Decision.APPROVED) {
-            result.approval_comment = "Great work. The implementation follows best practices and is production-ready.";
+            result.approval_comment = "The implementation adheres to established coding standards and demonstrates architectural consistency. Approved for merge.";
         } else if (analysis.decision === Decision.CHANGES_REQUESTED) {
             result.change_request_comment =
-                "The PR introduces valuable functionality, however, several critical issues must be addressed before merging.";
+                "Critical issues identified that compromise system integrity or security. Refactoring is required before these changes can be integrated.";
         }
 
         return result;
@@ -155,28 +155,24 @@ export class PRReviewerService {
      * Calculate confidence score based on analysis
      */
     private calculateConfidenceScore(comments: ReviewComment[], riskLevel: RiskLevel): number {
-        let score = 100;
+        // Base score
+        let score = 95;
 
-        // Deduct points based on severity
-        for (const comment of comments) {
-            switch (comment.severity) {
-                case "CRITICAL":
-                    score -= 20;
-                    break;
-                case "MAJOR":
-                    score -= 10;
-                    break;
-                case "MINOR":
-                    score -= 5;
-                    break;
-                case "INFO":
-                    score -= 2;
-                    break;
-            }
-        }
+        if (comments.length === 0) return 100;
 
-        // Ensure score is between 0 and 100
-        return Math.max(0, Math.min(100, score));
+        // Deduct points based on severity with a floor
+        const criticalCount = comments.filter(c => c.severity === "CRITICAL").length;
+        const majorCount = comments.filter(c => c.severity === "MAJOR").length;
+
+        score -= (criticalCount * 15);
+        score -= (majorCount * 5);
+        score -= (comments.length * 1);
+
+        // Cap deductions
+        if (riskLevel === RiskLevel.CRITICAL) score = Math.min(score, 40);
+        if (riskLevel === RiskLevel.HIGH) score = Math.min(score, 60);
+
+        return Math.max(10, Math.min(100, score));
     }
 
     /**

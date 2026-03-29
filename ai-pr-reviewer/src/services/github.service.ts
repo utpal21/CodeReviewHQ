@@ -1,10 +1,5 @@
-/**
- * GitHub Integration Service
- * Handles fetching PRs, file changes, and posting reviews to GitHub
- * Uses GitHub's REST API via Octokit
- */
-
 import { Octokit } from "octokit";
+import { logger } from "../utils/logger.js";
 
 export interface GitHubPR {
     number: number;
@@ -52,7 +47,17 @@ export interface GitHubReviewComment {
     path: string;
     line: number;
     body: string;
-    position?: number;
+    side?: "LEFT" | "RIGHT";
+}
+
+export interface GitHubRepository {
+    id: number;
+    name: string;
+    full_name: string;
+    owner: { login: string };
+    default_branch: string;
+    html_url: string;
+    description: string | null;
 }
 
 export class GitHubService {
@@ -107,6 +112,84 @@ export class GitHubService {
     }
 
     /**
+     * Get repository details (including default branch)
+     */
+    async getRepository(
+        owner?: string,
+        repo?: string
+    ): Promise<GitHubRepository> {
+        const repoOwner = owner || this.defaultOwner;
+        const repoName = repo || this.defaultRepo;
+
+        logger.debug(`Fetching repository details for ${repoOwner}/${repoName}`);
+        try {
+            const response = await this.octokit.rest.repos.get({
+                owner: repoOwner,
+                repo: repoName,
+            });
+
+            return response.data as unknown as GitHubRepository;
+        } catch (error) {
+            logger.error(`Failed to fetch repository details: ${repoOwner}/${repoName}`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get a specific pull request
+     */
+    async getPullRequest(
+        pullNumber: number,
+        owner?: string,
+        repo?: string
+    ): Promise<GitHubPR> {
+        const repoOwner = owner || this.defaultOwner;
+        const repoName = repo || this.defaultRepo;
+
+        logger.debug(`Fetching PR #${pullNumber} from ${repoOwner}/${repoName}`);
+        try {
+            const response = await this.octokit.rest.pulls.get({
+                owner: repoOwner,
+                repo: repoName,
+                pull_number: pullNumber,
+            });
+
+            return response.data as unknown as GitHubPR;
+        } catch (error) {
+            logger.error(`Failed to fetch PR #${pullNumber}`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get all files in a repository recursively
+     */
+    async getRepositoryTree(
+        owner?: string,
+        repo?: string,
+        ref = "main"
+    ): Promise<string[]> {
+        const repoOwner = owner || this.defaultOwner;
+        const repoName = repo || this.defaultRepo;
+
+        try {
+            const response = await this.octokit.rest.git.getTree({
+                owner: repoOwner,
+                repo: repoName,
+                tree_sha: ref,
+                recursive: "true",
+            });
+
+            return response.data.tree
+                .filter((item: any) => item.type === "blob")
+                .map((item: any) => item.path || "");
+        } catch (error) {
+            console.error("Failed to fetch repository tree:", error);
+            return [];
+        }
+    }
+
+    /**
      * Get file changes for a specific PR
      * @param pullNumber - PR number
      * @param owner - Repository owner
@@ -130,6 +213,29 @@ export class GitHubService {
     }
 
     /**
+     * Get PR diff as string
+     */
+    async getPullRequestDiff(
+        pullNumber: number,
+        owner?: string,
+        repo?: string
+    ): Promise<string> {
+        const repoOwner = owner || this.defaultOwner;
+        const repoName = repo || this.defaultRepo;
+
+        const response = await this.octokit.rest.pulls.get({
+            owner: repoOwner,
+            repo: repoName,
+            pull_number: pullNumber,
+            headers: {
+                accept: "application/vnd.github.v3.diff",
+            },
+        });
+
+        return response.data as unknown as string;
+    }
+
+    /**
      * Get raw file content
      * @param path - File path
      * @param owner - Repository owner
@@ -145,19 +251,28 @@ export class GitHubService {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
-        const response = await this.octokit.rest.repos.getContent({
-            owner: repoOwner,
-            repo: repoName,
-            path,
-            ref,
-        });
+        logger.debug(`Fetching file content: ${path}`, { owner: repoOwner, repo: repoName, ref });
+        try {
+            const response = await this.octokit.rest.repos.getContent({
+                owner: repoOwner,
+                repo: repoName,
+                path,
+                ref,
+            });
 
-        // Decode base64 content
-        if ("content" in response.data && typeof response.data.content === "string") {
-            return Buffer.from(response.data.content, "base64").toString("utf-8");
+            if (Array.isArray(response.data)) {
+                throw new Error(`Path ${path} is a directory, not a file`);
+            }
+
+            if ("content" in response.data && typeof response.data.content === "string") {
+                return Buffer.from(response.data.content, "base64").toString("utf-8");
+            }
+
+            throw new Error(`Unable to retrieve file content for ${path}`);
+        } catch (error) {
+            logger.error(`Error retrieving file content: ${path}`, error);
+            throw error;
         }
-
-        throw new Error("Unable to retrieve file content");
     }
 
     /**
@@ -171,12 +286,13 @@ export class GitHubService {
         pullNumber: number,
         comments: GitHubReviewComment[],
         owner?: string,
-        repo?: string
+        repo?: string,
+        commitId?: string
     ): Promise<void> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
-        // Create comments for each file
+        logger.info(`Posting ${comments.length} individual comments to PR #${pullNumber}`);
         for (const comment of comments) {
             try {
                 await this.octokit.rest.pulls.createReviewComment({
@@ -184,12 +300,13 @@ export class GitHubService {
                     repo: repoName,
                     pull_number: pullNumber,
                     body: comment.body,
-                    commit_id: "", // Required but can be empty
+                    commit_id: commitId || "",
                     path: comment.path,
-                    position: comment.position,
+                    line: comment.line,
+                    side: comment.side || "RIGHT",
                 });
             } catch (error) {
-                console.error(`Failed to post comment for ${comment.path}:${comment.line}:`, error);
+                logger.error(`Failed to post comment for ${comment.path}:${comment.line}`, error);
             }
         }
     }
@@ -206,8 +323,10 @@ export class GitHubService {
         pullNumber: number,
         body: string,
         event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" = "COMMENT",
+        comments: GitHubReviewComment[] = [],
         owner?: string,
-        repo?: string
+        repo?: string,
+        commitId?: string
     ): Promise<void> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
@@ -218,7 +337,13 @@ export class GitHubService {
             pull_number: pullNumber,
             body,
             event,
-            comments: [],
+            commit_id: commitId,
+            comments: comments.map(c => ({
+                path: c.path,
+                line: c.line,
+                body: c.body,
+                side: "RIGHT",
+            })),
         });
     }
 
