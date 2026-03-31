@@ -153,6 +153,37 @@ server.registerTool(
 const app = express();
 app.use(express.json());
 
+// Middleware to extract mcpize custom headers and set as environment variables
+app.use((req: Request, res, next) => {
+  // Try multiple header name formats (HTTP headers are case-insensitive)
+  const githubToken = (req.headers['x-github-token'] as string) ||
+    (req.headers['github-token'] as string) ||
+    (req.headers['github_token'] as string) ||
+    (req.headers['GITHUB_TOKEN'] as string);
+
+  const githubOwner = (req.headers['x-github-owner'] as string) ||
+    (req.headers['github-owner'] as string) ||
+    (req.headers['github_owner'] as string) ||
+    (req.headers['GITHUB_OWNER'] as string);
+
+  const githubRepo = (req.headers['x-github-repo'] as string) ||
+    (req.headers['github-repo'] as string) ||
+    (req.headers['github_repo'] as string) ||
+    (req.headers['GITHUB_REPO'] as string);
+
+  if (githubToken) process.env.GITHUB_TOKEN = githubToken;
+  if (githubOwner) process.env.GITHUB_OWNER = githubOwner;
+  if (githubRepo) process.env.GITHUB_REPO = githubRepo;
+
+  logger.debug('Headers received', {
+    hasToken: !!githubToken,
+    hasOwner: !!githubOwner,
+    hasRepo: !!githubRepo
+  });
+
+  next();
+});
+
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
 });

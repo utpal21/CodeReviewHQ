@@ -198,11 +198,44 @@ Already integrated locally, can use remote version.
 - Easy discovery and installation
 - Supports multiple IDEs
 
+### ⚠️ Important: Header Configuration for GitHub Authentication
+
+When deploying to mcpize, you need to configure **Custom Headers** instead of Environment Variables for GitHub credentials. The server automatically extracts these headers from incoming requests.
+
+#### Configuring Custom Headers in mcpize
+
+1. Go to your server's **Settings** in mcpize
+2. Navigate to **Custom Headers Configuration**
+3. Add the following required headers:
+
+| Header Name | Description | Example Value | Required |
+|-------------|-------------|---------------|----------|
+| `GITHUB_TOKEN` | Your GitHub personal access token | `ghp_abc123xyz...` | Yes |
+| `GITHUB_OWNER` | GitHub repository owner/organization | `utpal21` | Yes |
+| `GITHUB_REPO` | GitHub repository name | `CodeReviewHQ` | Yes |
+
+#### How It Works
+
+The server middleware (`src/index.ts`) automatically:
+1. Extracts these headers from every incoming MCP request
+2. Sets them as environment variables (`process.env.GITHUB_TOKEN`, etc.)
+3. Makes them available to the GitHub service
+
+**Note**: Users installing your server from mcpize will be prompted to provide these headers during installation.
+
+#### Why Headers Instead of Environment Variables?
+
+- **User-specific credentials**: Each user needs their own GitHub token
+- **Multi-tenancy**: Multiple users can connect to the same server instance
+- **Security**: Tokens are passed per-request, not stored on the server
+- **Flexibility**: Users can switch repositories without redeployment
+
 ### Publishing Steps
 
-1. **Deploy your server** (Cloud Run, VPS, etc.)
+1. **Deploy your server** (Cloud Run, VPS, mcpize hosting, etc.)
 2. **Get public URL**: `https://your-server.com/mcp`
-3. **Register on mcpize**:
+3. **Configure Custom Headers** in mcpize (see above)
+4. **Register on mcpize**:
    ```json
    {
      "name": "ai-pr-reviewer",
@@ -268,7 +301,7 @@ app.post("/mcp", (req, res) => {
 });
 ```
 
-## 📊 Architecture Comparison
+## � Architecture Comparison
 
 ### Local Stdio (Antigravity)
 ```
