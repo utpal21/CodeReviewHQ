@@ -153,51 +153,6 @@ server.registerTool(
 const app = express();
 app.use(express.json());
 
-// Middleware to extract mcpize custom headers and set as environment variables
-app.use((req: Request, res, next) => {
-  // Log all headers for debugging
-  const headerKeys = Object.keys(req.headers).filter(k => k.toLowerCase().includes('github'));
-  logger.debug('All GitHub-related headers', {
-    headers: headerKeys,
-    allHeaders: Object.keys(req.headers)
-  });
-
-  // Express normalizes headers to lowercase, so we check lowercase versions
-  // Client sends: GITHUB_TOKEN, Express receives: github-token or github_token
-  const githubToken = (req.headers['x-github-token'] as string) ||
-    (req.headers['github-token'] as string) ||
-    (req.headers['github_token'] as string) ||
-    (req.headers['GITHUB_TOKEN'] as string) ||
-    (req.headers['x-github-token'.toLowerCase()] as string) ||
-    (req.headers['github-token'.toLowerCase()] as string);
-
-  const githubOwner = (req.headers['x-github-owner'] as string) ||
-    (req.headers['github-owner'] as string) ||
-    (req.headers['github_owner'] as string) ||
-    (req.headers['GITHUB_OWNER'] as string);
-
-  const githubRepo = (req.headers['x-github-repo'] as string) ||
-    (req.headers['github-repo'] as string) ||
-    (req.headers['github_repo'] as string) ||
-    (req.headers['GITHUB_REPO'] as string);
-
-  // Set environment variables if headers are present
-  if (githubToken) process.env.GITHUB_TOKEN = githubToken;
-  if (githubOwner) process.env.GITHUB_OWNER = githubOwner;
-  if (githubRepo) process.env.GITHUB_REPO = githubRepo;
-
-  logger.info('Headers received', {
-    hasToken: !!githubToken,
-    hasOwner: !!githubOwner,
-    hasRepo: !!githubRepo,
-    owner: githubOwner,
-    repo: githubRepo,
-    allGitHubHeaders: headerKeys
-  });
-
-  next();
-});
-
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
 });
