@@ -67,6 +67,18 @@ export class GitHubService {
 
     constructor() {
         const token = process.env.GITHUB_TOKEN;
+        const owner = process.env.GITHUB_OWNER;
+        const repo = process.env.GITHUB_REPO;
+
+        logger.info("GitHubService initialized", {
+            hasToken: !!token,
+            hasOwner: !!owner,
+            hasRepo: !!repo,
+            owner: owner,
+            repo: repo,
+            tokenPrefix: token ? `${token.substring(0, 7)}...` : 'none'
+        });
+
         if (!token) {
             throw new Error("GITHUB_TOKEN environment variable is required");
         }
@@ -75,8 +87,8 @@ export class GitHubService {
             auth: token,
         });
 
-        this.defaultOwner = process.env.GITHUB_OWNER || "";
-        this.defaultRepo = process.env.GITHUB_REPO || "";
+        this.defaultOwner = owner || "";
+        this.defaultRepo = repo || "";
     }
 
     /**

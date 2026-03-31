@@ -155,11 +155,14 @@ app.use(express.json());
 
 // Middleware to extract mcpize custom headers and set as environment variables
 app.use((req: Request, res, next) => {
-  // Try multiple header name formats (HTTP headers are case-insensitive)
+  // Express normalizes headers to lowercase, so we check lowercase versions
+  // Client sends: GITHUB_TOKEN, Express receives: github-token or github_token
   const githubToken = (req.headers['x-github-token'] as string) ||
     (req.headers['github-token'] as string) ||
     (req.headers['github_token'] as string) ||
-    (req.headers['GITHUB_TOKEN'] as string);
+    (req.headers['GITHUB_TOKEN'] as string) ||
+    (req.headers['x-github-token'.toLowerCase()] as string) ||
+    (req.headers['github-token'.toLowerCase()] as string);
 
   const githubOwner = (req.headers['x-github-owner'] as string) ||
     (req.headers['github-owner'] as string) ||
@@ -171,14 +174,17 @@ app.use((req: Request, res, next) => {
     (req.headers['github_repo'] as string) ||
     (req.headers['GITHUB_REPO'] as string);
 
+  // Set environment variables if headers are present
   if (githubToken) process.env.GITHUB_TOKEN = githubToken;
   if (githubOwner) process.env.GITHUB_OWNER = githubOwner;
   if (githubRepo) process.env.GITHUB_REPO = githubRepo;
 
-  logger.debug('Headers received', {
+  logger.info('Headers received', {
     hasToken: !!githubToken,
     hasOwner: !!githubOwner,
-    hasRepo: !!githubRepo
+    hasRepo: !!githubRepo,
+    owner: githubOwner,
+    repo: githubRepo
   });
 
   next();
