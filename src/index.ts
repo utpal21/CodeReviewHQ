@@ -157,6 +157,10 @@ app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
 });
 
+app.get("/ping", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
+});
+
 app.post("/mcp", async (req: Request, res: Response) => {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
