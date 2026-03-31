@@ -11,4 +11,11 @@ startCommand:
   command: node dist/index.js
 
 configSchema:
-  source: code
+  type: object
+  properties:
+    GITHUB_TOKEN:
+      type: string
+      title: GitHub Personal Access Token
+      description: Your GitHub personal access token with repo scope
+      format: password
+      required: true

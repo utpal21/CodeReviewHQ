@@ -155,6 +155,13 @@ app.use(express.json());
 
 // Middleware to extract mcpize custom headers and set as environment variables
 app.use((req: Request, res, next) => {
+  // Log all headers for debugging
+  const headerKeys = Object.keys(req.headers).filter(k => k.toLowerCase().includes('github'));
+  logger.debug('All GitHub-related headers', {
+    headers: headerKeys,
+    allHeaders: Object.keys(req.headers)
+  });
+
   // Express normalizes headers to lowercase, so we check lowercase versions
   // Client sends: GITHUB_TOKEN, Express receives: github-token or github_token
   const githubToken = (req.headers['x-github-token'] as string) ||
@@ -184,7 +191,8 @@ app.use((req: Request, res, next) => {
     hasOwner: !!githubOwner,
     hasRepo: !!githubRepo,
     owner: githubOwner,
-    repo: githubRepo
+    repo: githubRepo,
+    allGitHubHeaders: headerKeys
   });
 
   next();
