@@ -153,34 +153,166 @@ server.registerTool(
 const app = express();
 app.use(express.json());
 
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
+// Request ID generator for tracing
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Configuration validation on startup
+function validateConfig() {
+  const required = ["GITHUB_TOKEN"];
+  const missing = required.filter(key => !process.env[key]);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(", ")}\n` +
+      `For mcpize deployment: Configure these in server settings.\n` +
+      `For local development: Set them in .env file.`
+    );
+  }
+
+  const token = process.env.GITHUB_TOKEN!;
+  if (!token.startsWith("ghp_") && !token.startsWith("github_pat_")) {
+    logger.warn("GITHUB_TOKEN format appears invalid (should start with ghp_ or github_pat_)");
+  }
+}
+
+// Validate configuration on startup
+try {
+  validateConfig();
+  logger.info("Configuration validated successfully");
+} catch (error) {
+  logger.error("Configuration validation failed", error);
+  process.exit(1);
+}
+
+app.get("/health", async (_req: Request, res: Response) => {
+  try {
+    const health = {
+      status: "healthy",
+      service: "ai-pr-reviewer",
+      version: "1.1.0",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      checks: {
+        github: process.env.GITHUB_TOKEN ? "configured" : "not_configured"
+      }
+    };
+    res.status(200).json(health);
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
-app.get("/ping", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "healthy", service: "ai-pr-reviewer" });
+app.get("/ping", async (_req: Request, res: Response) => {
+  try {
+    const health = {
+      status: "healthy",
+      service: "ai-pr-reviewer",
+      version: "1.1.0"
+    };
+    res.status(200).json(health);
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 app.post("/mcp", async (req: Request, res: Response) => {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
+  const requestId = generateRequestId();
+  const startTime = Date.now();
+  let transport: StreamableHTTPServerTransport | null = null;
+
+  logger.info(`[${requestId}] MCP Request`, {
+    method: req.body?.method,
+    id: req.body?.id,
+    timestamp: new Date().toISOString()
   });
 
-  res.on("close", () => {
-    transport.close();
-  });
+  try {
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
 
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+    res.on("close", () => {
+      if (transport) transport.close();
+    });
+
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+
+    const duration = Date.now() - startTime;
+    logger.info(`[${requestId}] MCP Response`, {
+      status: res.statusCode,
+      duration: `${duration}ms`
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error(`[${requestId}] MCP Error`, {
+      error: error instanceof Error ? error.message : String(error),
+      duration: `${duration}ms`
+    });
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: error instanceof Error ? error.message : String(error)
+        },
+        id: req.body?.id || null
+      });
+    }
+
+    if (transport) transport.close();
+  }
 });
 
 const port = parseInt(process.env.PORT || "8080");
-app.listen(port, () => {
+let isShuttingDown = false;
+
+// Graceful shutdown handler
+async function gracefulShutdown(signal: string) {
+  if (isShuttingDown) {
+    logger.warn("Shutdown already in progress");
+    return;
+  }
+
+  isShuttingDown = true;
+  logger.info(`Received ${signal}, starting graceful shutdown`);
+
+  // Give time for in-flight requests to complete (max 10 seconds)
+  await new Promise(resolve => setTimeout(resolve, 10000));
+
+  logger.info("Graceful shutdown complete");
+  process.exit(0);
+}
+
+// Graceful shutdown handlers
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// Start server
+const serverInstance = app.listen(port, () => {
   logger.info(`MCP Server active on port ${port}`);
+  logger.info(`Health endpoints available at /health and /ping`);
+  logger.info(`MCP endpoint available at /mcp`);
 });
 
-process.on("SIGTERM", () => {
-  logger.info("Terminating service...");
-  process.exit(0);
+// Handle server errors
+serverInstance.on("error", (error: any) => {
+  if (error.code === "EADDRINUSE") {
+    logger.error(`Port ${port} is already in use`);
+    process.exit(1);
+  } else {
+    logger.error("Server error", error);
+    process.exit(1);
+  }
 });

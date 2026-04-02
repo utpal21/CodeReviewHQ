@@ -16,6 +16,6 @@ configSchema:
     GITHUB_TOKEN:
       type: string
       title: GitHub Personal Access Token
-      description: Your GitHub personal access token with repo scope
+      description: Your GitHub personal access token with repo scope (permissions: repo, read:org)
       format: password
       required: true

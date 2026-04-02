@@ -80,7 +80,11 @@ export class GitHubService {
         });
 
         if (!token) {
-            throw new Error("GITHUB_TOKEN environment variable is required");
+            throw new Error(
+                "GITHUB_TOKEN environment variable is required.\n" +
+                "For mcpize deployment: Configure in server settings.\n" +
+                "For local development: Set in .env file or export GITHUB_TOKEN='your_token'"
+            );
         }
 
         this.octokit = new Octokit({
