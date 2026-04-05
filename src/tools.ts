@@ -16,6 +16,26 @@ registry.register(new UniversalReviewer());
 let githubService: GitHubService | null = null;
 
 /**
+ * Validate GitHub configuration
+ * Throws error if GITHUB_TOKEN is not configured
+ */
+export function validateGitHubConfig(): void {
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error(
+      "GITHUB_TOKEN not configured. " +
+      "Please configure your GitHub Personal Access Token in server settings.\n\n" +
+      "For mcpize deployment:\n" +
+      "1. Go to your server settings in mcpize dashboard\n" +
+      "2. Find 'GitHub Personal Access Token' field\n" +
+      "3. Enter your token (starts with 'ghp_' or 'github_pat_')\n" +
+      "4. Save and wait for redeployment\n\n" +
+      "For local development:\n" +
+      "Set GITHUB_TOKEN environment variable or add to .env file"
+    );
+  }
+}
+
+/**
  * Get GitHub service instance
  */
 function getGitHubService(): GitHubService {
@@ -99,6 +119,9 @@ export async function fetchPullRequests(
   created_at: string;
   updated_at: string;
 }>> {
+  // Validate GitHub configuration before making API calls
+  validateGitHubConfig();
+
   const service = getGitHubService();
   const prs = await service.getPullRequests(owner, repo, state, limit);
 
@@ -122,6 +145,9 @@ export async function reviewGitHubPR(
   repo?: string,
   postComment = false
 ): Promise<ReviewResult & { pr_number: number }> {
+  // Validate GitHub configuration before making API calls
+  validateGitHubConfig();
+
   logger.info(`Starting review for PR #${pullNumber} in ${owner || 'default'}/${repo || 'default'}`);
   const github = getGitHubService();
 
@@ -164,6 +190,9 @@ export async function reviewRepository(
   branch?: string,
   maxFiles = 50
 ): Promise<ReviewResult> {
+  // Validate GitHub configuration before making API calls
+  validateGitHubConfig();
+
   const github = getGitHubService();
   const repoOwner = owner || process.env.GITHUB_OWNER;
   const repoName = repo || process.env.GITHUB_REPO;
@@ -173,15 +202,15 @@ export async function reviewRepository(
   }
 
   logger.info(`Starting full repository review for ${repoOwner}/${repoName}`);
-  
+
   const repoInfo = await github.getRepository(repoOwner, repoName);
   const ref = branch || repoInfo.default_branch;
 
   const tree = await github.getRepositoryTree(repoOwner, repoName, ref);
-  
+
   const filesToReview = tree.filter((path) => {
     const language = getLanguageFromFilename(path);
-    return language && 
+    return language &&
       !path.includes('node_modules') &&
       !path.includes('venv') &&
       !path.includes('.venv') &&

@@ -160,29 +160,29 @@ function generateRequestId(): string {
 
 // Configuration validation on startup
 function validateConfig() {
-  const required = ["GITHUB_TOKEN"];
-  const missing = required.filter(key => !process.env[key]);
+  const hasToken = !!process.env.GITHUB_TOKEN;
 
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(", ")}\n` +
-      `For mcpize deployment: Configure these in server settings.\n` +
-      `For local development: Set them in .env file.`
+  if (hasToken) {
+    const token = process.env.GITHUB_TOKEN!;
+    if (!token.startsWith("ghp_") && !token.startsWith("github_pat_")) {
+      logger.warn("GITHUB_TOKEN format appears invalid (should start with ghp_ or github_pat_)");
+    }
+    logger.info("GITHUB_TOKEN configured in server environment (authenticated mode)");
+  } else {
+    logger.warn(
+      "GITHUB_TOKEN not configured in server environment.\n" +
+      "Server will start in degraded mode.\n" +
+      "Users must configure GITHUB_TOKEN in server settings for tool functionality."
     );
-  }
-
-  const token = process.env.GITHUB_TOKEN!;
-  if (!token.startsWith("ghp_") && !token.startsWith("github_pat_")) {
-    logger.warn("GITHUB_TOKEN format appears invalid (should start with ghp_ or github_pat_)");
   }
 }
 
-// Validate configuration on startup
+// Validate configuration on startup (graceful - doesn't exit on missing token)
 try {
   validateConfig();
-  logger.info("Configuration validated successfully");
+  logger.info("Server startup validation completed successfully");
 } catch (error) {
-  logger.error("Configuration validation failed", error);
+  logger.error("Unexpected error during configuration validation", error);
   process.exit(1);
 }
 
@@ -254,18 +254,45 @@ app.post("/mcp", async (req: Request, res: Response) => {
     });
   } catch (error) {
     const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Classify error type for appropriate HTTP status and error code
+    let errorCode = -32603; // Default: Internal error
+    let statusCode = 500;
+
+    if (errorMessage.includes("GITHUB_TOKEN")) {
+      errorCode = -32001; // Custom: Authentication error
+      statusCode = 401;
+    } else if (errorMessage.includes("not found") || errorMessage.includes("404")) {
+      errorCode = -32002; // Custom: Resource not found
+      statusCode = 404;
+    } else if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
+      errorCode = -32003; // Custom: Rate limit exceeded
+      statusCode = 429;
+    } else if (errorMessage.includes("permission") || errorMessage.includes("403")) {
+      errorCode = -32004; // Custom: Permission denied
+      statusCode = 403;
+    }
+
     logger.error(`[${requestId}] MCP Error`, {
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
+      code: errorCode,
+      statusCode,
       duration: `${duration}ms`
     });
 
     if (!res.headersSent) {
-      res.status(500).json({
+      res.status(statusCode).json({
         jsonrpc: "2.0",
         error: {
-          code: -32603,
-          message: "Internal error",
-          data: error instanceof Error ? error.message : String(error)
+          code: errorCode,
+          message: errorMessage,
+          data: {
+            timestamp: new Date().toISOString(),
+            requestId,
+            server: "ai-pr-reviewer",
+            version: "1.1.0"
+          }
         },
         id: req.body?.id || null
       });
