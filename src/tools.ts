@@ -153,12 +153,16 @@ export async function fetchPullRequests(
   created_at: string;
   updated_at: string;
 }>> {
+  // Use configured values from mcpize if not provided
+  const effectiveOwner = owner || process.env.GITHUB_OWNER;
+  const effectiveRepo = repo || process.env.GITHUB_REPO;
+
   // Validate GitHub configuration before making API calls
   validateGitHubConfig(github_token);
 
   const token = getGitHubToken(github_token);
   const service = new GitHubService(token);
-  const prs = await service.getPullRequests(owner, repo, state, limit);
+  const prs = await service.getPullRequests(effectiveOwner, effectiveRepo, state, limit);
 
   return prs.map(pr => ({
     number: pr.number,
@@ -181,25 +185,29 @@ export async function reviewGitHubPR(
   postComment = false,
   github_token?: string
 ): Promise<ReviewResult & { pr_number: number }> {
+  // Use configured values from mcpize if not provided
+  const effectiveOwner = owner || process.env.GITHUB_OWNER;
+  const effectiveRepo = repo || process.env.GITHUB_REPO;
+
   // Validate GitHub configuration before making API calls
   validateGitHubConfig(github_token);
 
   const token = getGitHubToken(github_token);
   const github = new GitHubService(token);
 
-  logger.info(`Starting review for PR #${pullNumber} in ${owner || 'default'}/${repo || 'default'}`);
+  logger.info(`Starting review for PR #${pullNumber} in ${effectiveOwner || 'default'}/${effectiveRepo || 'default'}`);
 
-  const pr = await github.getPullRequest(pullNumber, owner, repo);
+  const pr = await github.getPullRequest(pullNumber, effectiveOwner, effectiveRepo);
   const headSha = pr.head.sha;
 
-  const files = await github.getPullRequestFiles(pullNumber, owner, repo);
+  const files = await github.getPullRequestFiles(pullNumber, effectiveOwner, effectiveRepo);
   const changes: Array<{ file_path: string; content: string; language?: string }> = [];
 
   for (const file of files) {
     if (file.status === "deleted") continue;
 
     try {
-      const content = await github.getFileContent(file.filename, owner, repo, headSha);
+      const content = await github.getFileContent(file.filename, effectiveOwner, effectiveRepo, headSha);
       changes.push({
         file_path: file.filename,
         content,
@@ -213,7 +221,7 @@ export async function reviewGitHubPR(
   const result = await reviewPR(changes);
 
   if (postComment) {
-    await postReviewComment(pullNumber, result, owner, repo, headSha, github);
+    await postReviewComment(pullNumber, result, effectiveOwner, effectiveRepo, headSha, github);
   }
 
   return { ...result, pr_number: pullNumber };
