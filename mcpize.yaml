@@ -15,10 +15,10 @@ configSchema:
   properties:
     GITHUB_TOKEN:
       type: string
-      title: GitHub Personal Access Token
-      description: Your GitHub personal access token with repo scope (permissions: repo, read:org). This token will be used to access your repositories for code review.
+      title: GitHub Personal Access Token (Optional)
+      description: Your GitHub personal access token with repo scope. If not provided here, pass it in each tool call as 'github_token' parameter.
       format: password
-      required: true
+      required: false
     GITHUB_OWNER:
       type: string
       title: GitHub Owner (Optional)
