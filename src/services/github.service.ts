@@ -65,30 +65,34 @@ export class GitHubService {
     private defaultOwner: string;
     private defaultRepo: string;
 
-    constructor() {
-        const token = process.env.GITHUB_TOKEN;
+    constructor(token?: string) {
+        // Use provided token or fall back to environment variable
+        const githubToken = token || process.env.GITHUB_TOKEN;
         const owner = process.env.GITHUB_OWNER;
         const repo = process.env.GITHUB_REPO;
 
         logger.info("GitHubService initialized", {
-            hasToken: !!token,
+            hasToken: !!githubToken,
             hasOwner: !!owner,
             hasRepo: !!repo,
             owner: owner,
             repo: repo,
-            tokenPrefix: token ? `${token.substring(0, 7)}...` : 'none'
+            tokenPrefix: githubToken ? `${githubToken.substring(0, 7)}...` : 'none',
+            tokenSource: token ? 'parameter' : (process.env.GITHUB_TOKEN ? 'environment' : 'none')
         });
 
-        if (!token) {
+        if (!githubToken) {
             throw new Error(
-                "GITHUB_TOKEN environment variable is required.\n" +
-                "For mcpize deployment: Configure in server settings.\n" +
-                "For local development: Set in .env file or export GITHUB_TOKEN='your_token'"
+                "GITHUB_TOKEN is required. Please provide one of:\n" +
+                "1. github_token parameter in tool arguments\n" +
+                "2. Authorization header (Bearer token)\n" +
+                "3. X-GitHub-Token header\n" +
+                "4. GITHUB_TOKEN environment variable (server configuration)"
             );
         }
 
         this.octokit = new Octokit({
-            auth: token,
+            auth: githubToken,
         });
 
         this.defaultOwner = owner || "";

@@ -6,6 +6,10 @@ import { ReviewerRegistry } from "./services/reviewers/registry.js";
 import { GitHubService } from "./services/github.service.js";
 import { ReviewContext, ReviewResult, RiskLevel, Decision } from "./models/review.models.js";
 import { logger } from "./utils/logger.js";
+import { AsyncLocalStorage } from "async_hooks";
+
+// Async local storage for request-scoped data (must match index.ts)
+const requestContext = new AsyncLocalStorage<{ githubToken?: string }>();
 
 // Initialize reviewers
 const registry = ReviewerRegistry.getInstance();
@@ -16,21 +20,50 @@ registry.register(new UniversalReviewer());
 let githubService: GitHubService | null = null;
 
 /**
+ * Get GitHub token from multiple sources with priority:
+ * 1. Per-request parameter (highest priority)
+ * 2. Request headers (from middleware)
+ * 3. Environment variable (server default)
+ * 
+ * @param tokenParam - Token provided as function parameter
+ * @returns GitHub token or undefined if not found
+ */
+export function getGitHubToken(tokenParam?: string): string | undefined {
+  // Priority 1: Per-request parameter
+  if (tokenParam) {
+    return tokenParam;
+  }
+
+  // Priority 2: Request headers (from async local storage)
+  const store = requestContext.getStore();
+  if (store?.githubToken) {
+    return store.githubToken;
+  }
+
+  // Priority 3: Environment variable (server default)
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN;
+  }
+
+  return undefined;
+}
+
+/**
  * Validate GitHub configuration
  * Throws error if GITHUB_TOKEN is not configured
  */
-export function validateGitHubConfig(): void {
-  if (!process.env.GITHUB_TOKEN) {
+export function validateGitHubConfig(tokenParam?: string): void {
+  const token = getGitHubToken(tokenParam);
+
+  if (!token) {
     throw new Error(
-      "GITHUB_TOKEN not configured. " +
-      "Please configure your GitHub Personal Access Token in server settings.\n\n" +
-      "For mcpize deployment:\n" +
-      "1. Go to your server settings in mcpize dashboard\n" +
-      "2. Find 'GitHub Personal Access Token' field\n" +
-      "3. Enter your token (starts with 'ghp_' or 'github_pat_')\n" +
-      "4. Save and wait for redeployment\n\n" +
-      "For local development:\n" +
-      "Set GITHUB_TOKEN environment variable or add to .env file"
+      "GITHUB_TOKEN is required. Please provide one of:\n" +
+      "1. github_token parameter in tool arguments (recommended for mcpize URL users)\n" +
+      "2. Authorization header (Bearer token)\n" +
+      "3. X-GitHub-Token header\n" +
+      "4. GITHUB_TOKEN environment variable (server configuration)\n\n" +
+      "For mcpize URL deployment, add github_token to your tool call:\n" +
+      '{ "github_token": "ghp_your_token_here", ... }'
     );
   }
 }
@@ -109,7 +142,8 @@ export async function fetchPullRequests(
   owner?: string,
   repo?: string,
   state: "open" | "closed" | "all" = "open",
-  limit = 10
+  limit = 10,
+  github_token?: string
 ): Promise<Array<{
   number: number;
   title: string;
@@ -120,9 +154,10 @@ export async function fetchPullRequests(
   updated_at: string;
 }>> {
   // Validate GitHub configuration before making API calls
-  validateGitHubConfig();
+  validateGitHubConfig(github_token);
 
-  const service = getGitHubService();
+  const token = getGitHubToken(github_token);
+  const service = new GitHubService(token);
   const prs = await service.getPullRequests(owner, repo, state, limit);
 
   return prs.map(pr => ({
@@ -143,13 +178,16 @@ export async function reviewGitHubPR(
   pullNumber: number,
   owner?: string,
   repo?: string,
-  postComment = false
+  postComment = false,
+  github_token?: string
 ): Promise<ReviewResult & { pr_number: number }> {
   // Validate GitHub configuration before making API calls
-  validateGitHubConfig();
+  validateGitHubConfig(github_token);
+
+  const token = getGitHubToken(github_token);
+  const github = new GitHubService(token);
 
   logger.info(`Starting review for PR #${pullNumber} in ${owner || 'default'}/${repo || 'default'}`);
-  const github = getGitHubService();
 
   const pr = await github.getPullRequest(pullNumber, owner, repo);
   const headSha = pr.head.sha;
@@ -175,7 +213,7 @@ export async function reviewGitHubPR(
   const result = await reviewPR(changes);
 
   if (postComment) {
-    await postReviewComment(pullNumber, result, owner, repo, headSha);
+    await postReviewComment(pullNumber, result, owner, repo, headSha, github);
   }
 
   return { ...result, pr_number: pullNumber };
@@ -188,12 +226,14 @@ export async function reviewRepository(
   owner?: string,
   repo?: string,
   branch?: string,
-  maxFiles = 50
+  maxFiles = 50,
+  github_token?: string
 ): Promise<ReviewResult> {
   // Validate GitHub configuration before making API calls
-  validateGitHubConfig();
+  validateGitHubConfig(github_token);
 
-  const github = getGitHubService();
+  const token = getGitHubToken(github_token);
+  const github = new GitHubService(token);
   const repoOwner = owner || process.env.GITHUB_OWNER;
   const repoName = repo || process.env.GITHUB_REPO;
 
@@ -277,9 +317,10 @@ async function postReviewComment(
   result: ReviewResult,
   owner?: string,
   repo?: string,
-  commitId?: string
+  commitId?: string,
+  github?: GitHubService
 ): Promise<void> {
-  const github = getGitHubService();
+  const githubService = github || getGitHubService();
 
   let comment = `## AI Technical Analysis\n\n`;
   comment += `**Risk Assessment:** ${result.risk_level}\n`;
@@ -326,7 +367,7 @@ async function postReviewComment(
 
   let addressableLines: Map<string, Set<number>> = new Map();
   try {
-    const diff = await github.getPullRequestDiff(pullNumber, owner, repo);
+    const diff = await githubService.getPullRequestDiff(pullNumber, owner, repo);
     addressableLines = parseDiffForAddressableLines(diff);
   } catch (error) {
     logger.warn(`Failed to fetch diff for comment filtering: PR #${pullNumber}`, error);
@@ -346,7 +387,7 @@ async function postReviewComment(
       side: "RIGHT" as const
     }));
 
-  await github.createReview(pullNumber, comment, event, githubReviewComments, owner, repo, commitId);
+  await githubService.createReview(pullNumber, comment, event, githubReviewComments, owner, repo, commitId);
 }
 
 /**

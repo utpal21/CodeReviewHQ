@@ -13,6 +13,10 @@ import {
   isGitHubConfigured
 } from "./tools.js";
 import { logger } from "./utils/logger.js";
+import { AsyncLocalStorage } from "async_hooks";
+
+// Async local storage for request-scoped data (like GitHub token from headers)
+const requestContext = new AsyncLocalStorage<{ githubToken?: string }>();
 
 /**
  * AI PR Reviewer - MCP Server
@@ -79,11 +83,12 @@ server.registerTool(
       repo: z.string().optional().describe("GitHub repository name"),
       branch: z.string().optional().describe("Target branch (defaults to main/master)"),
       max_files: z.number().optional().default(50).describe("Maximum files to analyze in one pass"),
+      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
     },
   },
-  async ({ owner, repo, branch, max_files }) => {
-    logger.info("Tool call: review_repository", { owner, repo, branch });
-    const output = await reviewRepository(owner, repo, branch, max_files);
+  async ({ owner, repo, branch, max_files, github_token }) => {
+    logger.info("Tool call: review_repository", { owner, repo, branch, hasToken: !!github_token });
+    const output = await reviewRepository(owner, repo, branch, max_files, github_token);
     return {
       content: [{ type: "text", text: JSON.stringify(output) }],
     };
@@ -118,11 +123,12 @@ server.registerTool(
       repo: z.string().optional(),
       state: z.enum(["open", "closed", "all"]).optional().default("open"),
       limit: z.number().optional().default(10),
+      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
     },
   },
-  async ({ owner, repo, state, limit }) => {
-    logger.info("Tool call: fetch_pull_requests", { owner, repo, state });
-    const output = await fetchPullRequests(owner, repo, state, limit);
+  async ({ owner, repo, state, limit, github_token }) => {
+    logger.info("Tool call: fetch_pull_requests", { owner, repo, state, hasToken: !!github_token });
+    const output = await fetchPullRequests(owner, repo, state, limit, github_token);
     return {
       content: [{ type: "text", text: JSON.stringify(output) }],
     };
@@ -138,11 +144,12 @@ server.registerTool(
       owner: z.string().optional(),
       repo: z.string().optional(),
       post_comment: z.boolean().optional().default(false),
+      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
     },
   },
-  async ({ pull_number, owner, repo, post_comment }) => {
-    logger.info("Tool call: review_github_pr", { pull_number, owner, repo, post_comment });
-    const output = await reviewGitHubPR(pull_number, owner, repo, post_comment);
+  async ({ pull_number, owner, repo, post_comment, github_token }) => {
+    logger.info("Tool call: review_github_pr", { pull_number, owner, repo, post_comment, hasToken: !!github_token });
+    const output = await reviewGitHubPR(pull_number, owner, repo, post_comment, github_token);
     return {
       content: [{ type: "text", text: JSON.stringify(output) }],
     };
@@ -151,7 +158,37 @@ server.registerTool(
 
 // Express App Setup for HTTP Transport (MCP over Webhook/HTTP)
 const app = express();
+
+// Middleware to extract GitHub token from headers
 app.use(express.json());
+app.use((req: Request, res: Response, next) => {
+  let githubToken: string | undefined;
+
+  // Priority 1: Authorization header (Bearer token)
+  const authHeader = req.headers.authorization;
+  if (authHeader && typeof authHeader === 'string') {
+    if (authHeader.startsWith('Bearer ')) {
+      githubToken = authHeader.substring(7);
+    } else {
+      githubToken = authHeader;
+    }
+  }
+
+  // Priority 2: X-GitHub-Token header
+  if (!githubToken) {
+    const githubTokenHeader = req.headers['x-github-token'];
+    if (githubTokenHeader && typeof githubTokenHeader === 'string') {
+      githubToken = githubTokenHeader;
+    }
+  }
+
+  // Store in async local storage for this request
+  if (githubToken) {
+    requestContext.run({ githubToken }, next);
+  } else {
+    next();
+  }
+});
 
 // Request ID generator for tracing
 function generateRequestId(): string {
