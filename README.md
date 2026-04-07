@@ -491,6 +491,6 @@ If you find CodeReviewHQ useful, please consider giving it a star on GitHub!
 
 ---
 
-**Made with ❤️ by the CodeReviewHQ Team**
+**Made with ❤️ by the [Utpal Biswas](https://github.com/utpal21)**
 
 *Automated code reviews for modern development teams*
