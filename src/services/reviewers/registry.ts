@@ -76,10 +76,7 @@ export class ReviewerRegistry {
             processedFiles.add(change.file_path);
 
             // Get applicable reviewers for this file
-            const applicableReviewers = this.getReviewersForFile(
-                change.file_path,
-                change.language
-            );
+            const applicableReviewers = this.getReviewersForFile(change.file_path, change.language);
 
             // Run each reviewer and collect comments
             for (const reviewer of applicableReviewers) {

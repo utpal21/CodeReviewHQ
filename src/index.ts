@@ -3,14 +3,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import express, { Request, Response } from "express";
 import { z } from "zod";
 import {
-  reviewPR,
-  reviewSingleFile,
-  getAvailableReviewers,
-  fetchPullRequests,
-  reviewGitHubPR,
-  reviewMultiplePRs,
-  reviewRepository,
-  isGitHubConfigured
+    reviewPR,
+    reviewSingleFile,
+    fetchPullRequests,
+    reviewGitHubPR,
+    reviewRepository,
 } from "./tools.js";
 import { logger } from "./utils/logger.js";
 import { AsyncLocalStorage } from "async_hooks";
@@ -24,136 +21,150 @@ const requestContext = new AsyncLocalStorage<{ githubToken?: string }>();
  */
 
 const server = new McpServer({
-  name: "ai-pr-reviewer",
-  version: "1.1.0",
-});
-
-const ReviewCommentSchema = z.object({
-  file_path: z.string(),
-  line_number: z.number(),
-  severity: z.enum(["INFO", "MINOR", "MAJOR", "CRITICAL"]),
-  category: z.enum(["CODE_QUALITY", "SECURITY", "PERFORMANCE", "DESIGN", "TESTING", "DEVOPS"]),
-  comment: z.string(),
-  suggestion: z.string(),
-  example_fix: z.string().optional(),
-});
-
-const ReviewResultSchema = z.object({
-  summary: z.string(),
-  risk_level: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
-  decision: z.enum(["APPROVED", "CHANGES_REQUESTED", "COMMENT_ONLY"]),
-  confidence_score: z.number(),
-  review_comments: z.array(ReviewCommentSchema),
-  suggested_improvements: z.array(z.string()),
-  approval_comment: z.string().optional(),
-  change_request_comment: z.string().optional(),
+    name: "ai-pr-reviewer",
+    version: "1.1.0",
 });
 
 // Register PR Review tool
 server.registerTool(
-  "review_pr",
-  {
-    description: "Performs a technical code review on an array of file changes",
-    inputSchema: {
-      changes: z.array(
-        z.object({
-          file_path: z.string().describe("Path to file"),
-          content: z.string().describe("File content to review"),
-          language: z.string().optional().describe("Programming language"),
-        })
-      ),
+    "review_pr",
+    {
+        description: "Performs a technical code review on an array of file changes",
+        inputSchema: {
+            changes: z.array(
+                z.object({
+                    file_path: z.string().describe("Path to file"),
+                    content: z.string().describe("File content to review"),
+                    language: z.string().optional().describe("Programming language"),
+                })
+            ),
+        },
     },
-  },
-  async ({ changes }) => {
-    logger.info("Tool call: review_pr", { fileCount: changes.length });
-    const output = await reviewPR(changes);
-    return {
-      content: [{ type: "text", text: JSON.stringify(output) }],
-    };
-  }
+    async ({ changes }) => {
+        logger.info("Tool call: review_pr", { fileCount: changes.length });
+        const output = await reviewPR(changes);
+        return {
+            content: [{ type: "text", text: JSON.stringify(output) }],
+        };
+    }
 );
 
 // Register Tool: Full Repository Review
 server.registerTool(
-  "review_repository",
-  {
-    description: "Analyzes an entire GitHub repository for technical debt and security risks",
-    inputSchema: {
-      owner: z.string().optional().describe("GitHub owner"),
-      repo: z.string().optional().describe("GitHub repository name"),
-      branch: z.string().optional().describe("Target branch (defaults to main/master)"),
-      max_files: z.number().optional().default(50).describe("Maximum files to analyze in one pass"),
-      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
+    "review_repository",
+    {
+        description: "Analyzes an entire GitHub repository for technical debt and security risks",
+        inputSchema: {
+            owner: z.string().optional().describe("GitHub owner"),
+            repo: z.string().optional().describe("GitHub repository name"),
+            branch: z.string().optional().describe("Target branch (defaults to main/master)"),
+            max_files: z
+                .number()
+                .optional()
+                .default(50)
+                .describe("Maximum files to analyze in one pass"),
+            github_token: z
+                .string()
+                .optional()
+                .describe(
+                    "GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"
+                ),
+        },
     },
-  },
-  async ({ owner, repo, branch, max_files, github_token }) => {
-    logger.info("Tool call: review_repository", { owner, repo, branch, hasToken: !!github_token });
-    const output = await reviewRepository(owner, repo, branch, max_files, github_token);
-    return {
-      content: [{ type: "text", text: JSON.stringify(output) }],
-    };
-  }
+    async ({ owner, repo, branch, max_files, github_token }) => {
+        logger.info("Tool call: review_repository", {
+            owner,
+            repo,
+            branch,
+            hasToken: !!github_token,
+        });
+        const output = await reviewRepository(owner, repo, branch, max_files, github_token);
+        return {
+            content: [{ type: "text", text: JSON.stringify(output) }],
+        };
+    }
 );
 
 server.registerTool(
-  "review_file",
-  {
-    description: "Reviews a single file for quality and security compliance",
-    inputSchema: {
-      file_path: z.string(),
-      content: z.string(),
-      language: z.string().optional(),
+    "review_file",
+    {
+        description: "Reviews a single file for quality and security compliance",
+        inputSchema: {
+            file_path: z.string(),
+            content: z.string(),
+            language: z.string().optional(),
+        },
     },
-  },
-  async ({ file_path, content, language }) => {
-    logger.info("Tool call: review_file", { file_path });
-    const output = await reviewSingleFile(file_path, content, language);
-    return {
-      content: [{ type: "text", text: JSON.stringify(output) }],
-    };
-  }
+    async ({ file_path, content, language }) => {
+        logger.info("Tool call: review_file", { file_path });
+        const output = await reviewSingleFile(file_path, content, language);
+        return {
+            content: [{ type: "text", text: JSON.stringify(output) }],
+        };
+    }
 );
 
 server.registerTool(
-  "fetch_pull_requests",
-  {
-    description: "Lists pull requests from a GitHub repository for selection",
-    inputSchema: {
-      owner: z.string().optional(),
-      repo: z.string().optional(),
-      state: z.enum(["open", "closed", "all"]).optional().default("open"),
-      limit: z.number().optional().default(10),
-      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
+    "fetch_pull_requests",
+    {
+        description: "Lists pull requests from a GitHub repository for selection",
+        inputSchema: {
+            owner: z.string().optional(),
+            repo: z.string().optional(),
+            state: z.enum(["open", "closed", "all"]).optional().default("open"),
+            limit: z.number().optional().default(10),
+            github_token: z
+                .string()
+                .optional()
+                .describe(
+                    "GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"
+                ),
+        },
     },
-  },
-  async ({ owner, repo, state, limit, github_token }) => {
-    logger.info("Tool call: fetch_pull_requests", { owner, repo, state, hasToken: !!github_token });
-    const output = await fetchPullRequests(owner, repo, state, limit, github_token);
-    return {
-      content: [{ type: "text", text: JSON.stringify(output) }],
-    };
-  }
+    async ({ owner, repo, state, limit, github_token }) => {
+        logger.info("Tool call: fetch_pull_requests", {
+            owner,
+            repo,
+            state,
+            hasToken: !!github_token,
+        });
+        const output = await fetchPullRequests(owner, repo, state, limit, github_token);
+        return {
+            content: [{ type: "text", text: JSON.stringify(output) }],
+        };
+    }
 );
 
 server.registerTool(
-  "review_github_pr",
-  {
-    description: "Automated analysis of a GitHub pull request with optional inline commenting",
-    inputSchema: {
-      pull_number: z.number(),
-      owner: z.string().optional(),
-      repo: z.string().optional(),
-      post_comment: z.boolean().optional().default(false),
-      github_token: z.string().optional().describe("GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"),
+    "review_github_pr",
+    {
+        description: "Automated analysis of a GitHub pull request with optional inline commenting",
+        inputSchema: {
+            pull_number: z.number(),
+            owner: z.string().optional(),
+            repo: z.string().optional(),
+            post_comment: z.boolean().optional().default(false),
+            github_token: z
+                .string()
+                .optional()
+                .describe(
+                    "GitHub Personal Access Token (for mcpize URL deployment, pass your token here)"
+                ),
+        },
     },
-  },
-  async ({ pull_number, owner, repo, post_comment, github_token }) => {
-    logger.info("Tool call: review_github_pr", { pull_number, owner, repo, post_comment, hasToken: !!github_token });
-    const output = await reviewGitHubPR(pull_number, owner, repo, post_comment, github_token);
-    return {
-      content: [{ type: "text", text: JSON.stringify(output) }],
-    };
-  }
+    async ({ pull_number, owner, repo, post_comment, github_token }) => {
+        logger.info("Tool call: review_github_pr", {
+            pull_number,
+            owner,
+            repo,
+            post_comment,
+            hasToken: !!github_token,
+        });
+        const output = await reviewGitHubPR(pull_number, owner, repo, post_comment, github_token);
+        return {
+            content: [{ type: "text", text: JSON.stringify(output) }],
+        };
+    }
 );
 
 // Express App Setup for HTTP Transport (MCP over Webhook/HTTP)
@@ -161,222 +172,210 @@ const app = express();
 
 // Middleware to extract GitHub token from headers
 app.use(express.json());
-app.use((req: Request, res: Response, next) => {
-  let githubToken: string | undefined;
+app.use((req: Request, _res: Response, next) => {
+    let githubToken: string | undefined;
 
-  // Priority 1: Authorization header (Bearer token)
-  const authHeader = req.headers.authorization;
-  if (authHeader && typeof authHeader === 'string') {
-    if (authHeader.startsWith('Bearer ')) {
-      githubToken = authHeader.substring(7);
+    // Priority 1: Authorization header (Bearer token)
+    const authHeader = req.headers.authorization;
+    if (authHeader && typeof authHeader === "string") {
+        if (authHeader.startsWith("Bearer ")) {
+            githubToken = authHeader.substring(7);
+        } else {
+            githubToken = authHeader;
+        }
+    }
+
+    // Priority 2: X-GitHub-Token header
+    if (!githubToken) {
+        const githubTokenHeader = req.headers["x-github-token"];
+        if (githubTokenHeader && typeof githubTokenHeader === "string") {
+            githubToken = githubTokenHeader;
+        }
+    }
+
+    // Store in async local storage for this request
+    if (githubToken) {
+        requestContext.run({ githubToken }, next);
     } else {
-      githubToken = authHeader;
+        next();
     }
-  }
-
-  // Priority 2: X-GitHub-Token header
-  if (!githubToken) {
-    const githubTokenHeader = req.headers['x-github-token'];
-    if (githubTokenHeader && typeof githubTokenHeader === 'string') {
-      githubToken = githubTokenHeader;
-    }
-  }
-
-  // Store in async local storage for this request
-  if (githubToken) {
-    requestContext.run({ githubToken }, next);
-  } else {
-    next();
-  }
 });
 
 // Request ID generator for tracing
 function generateRequestId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `req_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
 // Configuration validation on startup
-function validateConfig() {
-  const hasToken = !!process.env.GITHUB_TOKEN;
+function validateConfig(): void {
+    const hasToken = !!process.env.GITHUB_TOKEN;
 
-  if (hasToken) {
-    const token = process.env.GITHUB_TOKEN!;
-    if (!token.startsWith("ghp_") && !token.startsWith("github_pat_")) {
-      logger.warn("GITHUB_TOKEN format appears invalid (should start with ghp_ or github_pat_)");
+    if (hasToken) {
+        const token = process.env.GITHUB_TOKEN!;
+        if (!token.startsWith("ghp_") && !token.startsWith("github_pat_")) {
+            logger.warn(
+                "GITHUB_TOKEN format appears invalid (should start with ghp_ or github_pat_)"
+            );
+        }
+        logger.info("GITHUB_TOKEN configured in server environment (authenticated mode)");
+    } else {
+        logger.warn(
+            "GITHUB_TOKEN not configured in server environment.\n" +
+                "Server will start in degraded mode.\n" +
+                "Users must configure GITHUB_TOKEN in server settings for tool functionality."
+        );
     }
-    logger.info("GITHUB_TOKEN configured in server environment (authenticated mode)");
-  } else {
-    logger.warn(
-      "GITHUB_TOKEN not configured in server environment.\n" +
-      "Server will start in degraded mode.\n" +
-      "Users must configure GITHUB_TOKEN in server settings for tool functionality."
-    );
-  }
 }
 
 // Validate configuration on startup (graceful - doesn't exit on missing token)
 try {
-  validateConfig();
-  logger.info("Server startup validation completed successfully");
+    validateConfig();
+    logger.info("Server startup validation completed successfully");
 } catch (error) {
-  logger.error("Unexpected error during configuration validation", error);
-  process.exit(1);
+    logger.error("Unexpected error during configuration validation", error);
+    process.exit(1);
 }
 
-app.get("/health", async (_req: Request, res: Response) => {
-  try {
+app.get("/health", (_req: Request, res: Response) => {
     const health = {
-      status: "healthy",
-      service: "ai-pr-reviewer",
-      version: "1.1.0",
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      checks: {
-        github: process.env.GITHUB_TOKEN ? "configured" : "not_configured"
-      }
+        status: "healthy",
+        service: "ai-pr-reviewer",
+        version: "1.1.0",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        checks: {
+            github: process.env.GITHUB_TOKEN ? "configured" : "not_configured",
+        },
     };
     res.status(200).json(health);
-  } catch (error) {
-    res.status(503).json({
-      status: "unhealthy",
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
 });
 
-app.get("/ping", async (_req: Request, res: Response) => {
-  try {
+app.get("/ping", (_req: Request, res: Response) => {
     const health = {
-      status: "healthy",
-      service: "ai-pr-reviewer",
-      version: "1.1.0"
+        status: "healthy",
+        service: "ai-pr-reviewer",
+        version: "1.1.0",
     };
     res.status(200).json(health);
-  } catch (error) {
-    res.status(503).json({
-      status: "unhealthy",
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
 });
 
 app.post("/mcp", async (req: Request, res: Response) => {
-  const requestId = generateRequestId();
-  const startTime = Date.now();
-  let transport: StreamableHTTPServerTransport | null = null;
+    const requestId = generateRequestId();
+    const startTime = Date.now();
+    let transport: StreamableHTTPServerTransport | null = null;
 
-  logger.info(`[${requestId}] MCP Request`, {
-    method: req.body?.method,
-    id: req.body?.id,
-    timestamp: new Date().toISOString()
-  });
-
-  try {
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
+    logger.info(`[${requestId}] MCP Request`, {
+        method: req.body?.method,
+        id: req.body?.id,
+        timestamp: new Date().toISOString(),
     });
 
-    res.on("close", () => {
-      if (transport) transport.close();
-    });
+    try {
+        transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            enableJsonResponse: true,
+        });
 
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+        res.on("close", () => {
+            if (transport) void transport.close();
+        });
 
-    const duration = Date.now() - startTime;
-    logger.info(`[${requestId}] MCP Response`, {
-      status: res.statusCode,
-      duration: `${duration}ms`
-    });
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
 
-    // Classify error type for appropriate HTTP status and error code
-    let errorCode = -32603; // Default: Internal error
-    let statusCode = 500;
+        const duration = Date.now() - startTime;
+        logger.info(`[${requestId}] MCP Response`, {
+            status: res.statusCode,
+            duration: `${duration}ms`,
+        });
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (errorMessage.includes("GITHUB_TOKEN")) {
-      errorCode = -32001; // Custom: Authentication error
-      statusCode = 401;
-    } else if (errorMessage.includes("not found") || errorMessage.includes("404")) {
-      errorCode = -32002; // Custom: Resource not found
-      statusCode = 404;
-    } else if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
-      errorCode = -32003; // Custom: Rate limit exceeded
-      statusCode = 429;
-    } else if (errorMessage.includes("permission") || errorMessage.includes("403")) {
-      errorCode = -32004; // Custom: Permission denied
-      statusCode = 403;
+        // Classify error type for appropriate HTTP status and error code
+        let errorCode = -32603; // Default: Internal error
+        let statusCode = 500;
+
+        if (errorMessage.includes("GITHUB_TOKEN")) {
+            errorCode = -32001; // Custom: Authentication error
+            statusCode = 401;
+        } else if (errorMessage.includes("not found") || errorMessage.includes("404")) {
+            errorCode = -32002; // Custom: Resource not found
+            statusCode = 404;
+        } else if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
+            errorCode = -32003; // Custom: Rate limit exceeded
+            statusCode = 429;
+        } else if (errorMessage.includes("permission") || errorMessage.includes("403")) {
+            errorCode = -32004; // Custom: Permission denied
+            statusCode = 403;
+        }
+
+        logger.error(`[${requestId}] MCP Error`, {
+            error: errorMessage,
+            code: errorCode,
+            statusCode,
+            duration: `${duration}ms`,
+        });
+
+        if (!res.headersSent) {
+            res.status(statusCode).json({
+                jsonrpc: "2.0",
+                error: {
+                    code: errorCode,
+                    message: errorMessage,
+                    data: {
+                        timestamp: new Date().toISOString(),
+                        requestId,
+                        server: "ai-pr-reviewer",
+                        version: "1.1.0",
+                    },
+                },
+                id: req.body?.id || null,
+            });
+        }
+
+        if (transport) void transport.close();
     }
-
-    logger.error(`[${requestId}] MCP Error`, {
-      error: errorMessage,
-      code: errorCode,
-      statusCode,
-      duration: `${duration}ms`
-    });
-
-    if (!res.headersSent) {
-      res.status(statusCode).json({
-        jsonrpc: "2.0",
-        error: {
-          code: errorCode,
-          message: errorMessage,
-          data: {
-            timestamp: new Date().toISOString(),
-            requestId,
-            server: "ai-pr-reviewer",
-            version: "1.1.0"
-          }
-        },
-        id: req.body?.id || null
-      });
-    }
-
-    if (transport) transport.close();
-  }
 });
 
 const port = parseInt(process.env.PORT || "8080");
 let isShuttingDown = false;
 
 // Graceful shutdown handler
-async function gracefulShutdown(signal: string) {
-  if (isShuttingDown) {
-    logger.warn("Shutdown already in progress");
-    return;
-  }
+async function gracefulShutdown(signal: string): Promise<void> {
+    if (isShuttingDown) {
+        logger.warn("Shutdown already in progress");
+        return;
+    }
 
-  isShuttingDown = true;
-  logger.info(`Received ${signal}, starting graceful shutdown`);
+    isShuttingDown = true;
+    logger.info(`Received ${signal}, starting graceful shutdown`);
 
-  // Give time for in-flight requests to complete (max 10 seconds)
-  await new Promise(resolve => setTimeout(resolve, 10000));
+    // Give time for in-flight requests to complete (max 10 seconds)
+    await new Promise<void>((resolve) => setTimeout(resolve, 10000));
 
-  logger.info("Graceful shutdown complete");
-  process.exit(0);
+    logger.info("Graceful shutdown complete");
+    process.exit(0);
 }
 
 // Graceful shutdown handlers
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 
 // Start server
 const serverInstance = app.listen(port, () => {
-  logger.info(`MCP Server active on port ${port}`);
-  logger.info(`Health endpoints available at /health and /ping`);
-  logger.info(`MCP endpoint available at /mcp`);
+    logger.info(`MCP Server active on port ${port}`);
+    logger.info(`Health endpoints available at /health and /ping`);
+    logger.info(`MCP endpoint available at /mcp`);
 });
 
 // Handle server errors
-serverInstance.on("error", (error: any) => {
-  if (error.code === "EADDRINUSE") {
-    logger.error(`Port ${port} is already in use`);
-    process.exit(1);
-  } else {
-    logger.error("Server error", error);
-    process.exit(1);
-  }
+serverInstance.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+        logger.error(`Port ${port} is already in use`);
+        process.exit(1);
+    } else {
+        logger.error("Server error", error);
+        process.exit(1);
+    }
 });

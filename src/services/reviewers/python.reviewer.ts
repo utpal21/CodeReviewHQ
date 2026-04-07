@@ -1,4 +1,3 @@
-
 import { BaseReviewer } from "./base.reviewer.js";
 import { ReviewContext, ReviewComment, Category, Severity } from "../../models/review.models.js";
 
@@ -11,7 +10,7 @@ export class PythonReviewer extends BaseReviewer {
         this.languagePatterns.set("python", /\.py$/i);
     }
 
-    async review(context: ReviewContext): Promise<ReviewComment[]> {
+    review(context: ReviewContext): Promise<ReviewComment[]> {
         const comments: ReviewComment[] = [];
 
         for (const change of context.changes) {
@@ -22,7 +21,7 @@ export class PythonReviewer extends BaseReviewer {
             comments.push(...this.analyzeCode(change));
         }
 
-        return comments;
+        return Promise.resolve(comments);
     }
 
     protected analyzeCode(change: { file_path: string; content: string }): ReviewComment[] {
@@ -32,6 +31,8 @@ export class PythonReviewer extends BaseReviewer {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const lineNumber = i + 1;
+
+            if (!line) continue;
 
             // Check for print statements
             if (this.hasPrintStatement(line)) {
@@ -87,7 +88,7 @@ export class PythonReviewer extends BaseReviewer {
                         Category.DESIGN,
                         Severity.MINOR,
                         "Function appears to be large (>50 lines)",
-                        "Consider breaking down the function into smaller, more focused functions"
+                        "Consider breaking down function into smaller, more focused functions"
                     )
                 );
             }
@@ -121,7 +122,7 @@ export class PythonReviewer extends BaseReviewer {
                     )
                 );
             }
-            
+
             // Check for lack of type hints
             if (this.isFunctionDef(line) && !this.hasTypeHints(line)) {
                 comments.push(
@@ -146,7 +147,11 @@ export class PythonReviewer extends BaseReviewer {
     }
 
     private hasRequestsWithoutTimeout(line: string): boolean {
-        return /\brequests\.(get|post|put|delete|patch)\(/.test(line) && !line.includes("timeout=") && !line.trim().startsWith("#");
+        return (
+            /\brequests\.(get|post|put|delete|patch)\(/.test(line) &&
+            !line.includes("timeout=") &&
+            !line.trim().startsWith("#")
+        );
     }
 
     private hasPrintStatement(line: string): boolean {
@@ -191,6 +196,8 @@ export class PythonReviewer extends BaseReviewer {
 
         for (let i = startIndex + 1; i < lines.length; i++) {
             const currentLine = lines[i];
+            if (!currentLine) continue;
+
             if (currentLine.trim() === "") continue;
 
             const currentIndentation = currentLine.length - currentLine.trimStart().length;

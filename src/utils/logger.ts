@@ -1,6 +1,6 @@
 /**
  * Standardized Logger for MCP Servers.
- * Directs output to stderr to avoid interference with the MCP JSON-RPC protocol on stdout.
+ * Directs output to stderr to avoid interference with MCP JSON-RPC protocol on stdout.
  */
 export enum LogLevel {
     DEBUG = 0,
@@ -30,39 +30,42 @@ export class Logger {
         this.level = level;
     }
 
-    public debug(message: string, context?: any): void {
+    public debug(message: string, context?: Record<string, unknown>): void {
         if (this.level <= LogLevel.DEBUG) {
             this.log("DEBUG", message, context);
         }
     }
 
-    public info(message: string, context?: any): void {
+    public info(message: string, context?: Record<string, unknown>): void {
         if (this.level <= LogLevel.INFO) {
             this.log("INFO", message, context);
         }
     }
 
-    public warn(message: string, context?: any): void {
+    public warn(message: string, context?: Record<string, unknown>): void {
         if (this.level <= LogLevel.WARN) {
             this.log("WARN", message, context);
         }
     }
 
-    public error(message: string, error?: any): void {
+    public error(message: string, error?: unknown): void {
         if (this.level <= LogLevel.ERROR) {
-            this.log("ERROR", message, error);
+            this.log("ERROR", message, error instanceof Error ? error : undefined);
         }
     }
 
-    private log(label: string, message: string, context?: any): void {
+    private log(label: string, message: string, context?: Record<string, unknown> | Error): void {
         const timestamp = new Date().toISOString();
         const contextStr = context ? ` | ${JSON.stringify(this.sanitize(context))}` : "";
         process.stderr.write(`[${timestamp}] [${label}] ${message}${contextStr}\n`);
     }
 
-    private sanitize(obj: any): any {
-        if (!obj || typeof obj !== "object") return obj;
-        const sanitized = { ...obj };
+    private sanitize(obj: unknown): Record<string, unknown> | Error {
+        if (obj instanceof Error) {
+            return { message: obj.message, stack: obj.stack };
+        }
+        if (!obj || typeof obj !== "object") return obj as Record<string, unknown>;
+        const sanitized = { ...(obj as Record<string, unknown>) };
         // Sensitive data prevention
         ["token", "password", "secret", "auth", "authorization"].forEach((key) => {
             if (key in sanitized) sanitized[key] = "********";

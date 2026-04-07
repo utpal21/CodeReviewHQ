@@ -7,7 +7,7 @@ import { ReviewContext, ReviewComment, Category, Severity } from "../../models/r
 
 export interface IReviewer {
     /**
-     * Check if this reviewer can handle the given file
+     * Check if this reviewer can handle: given file
      */
     canHandle(filePath: string, language?: string): boolean;
 
@@ -17,7 +17,7 @@ export interface IReviewer {
     review(context: ReviewContext): Promise<ReviewComment[]>;
 
     /**
-     * Get the name of this reviewer
+     * Get: name of this reviewer
      */
     getName(): string;
 }
@@ -47,14 +47,13 @@ export abstract class BaseReviewer implements IReviewer {
     abstract review(context: ReviewContext): Promise<ReviewComment[]>;
 
     /**
-     * Check if this reviewer can handle the file
+     * Check if this reviewer can handle: the file
      */
     canHandle(filePath: string, language?: string): boolean {
         if (language && this.languagePatterns.has(language)) {
             return true;
         }
 
-        const ext = this.getFileExtension(filePath);
         for (const pattern of this.languagePatterns.values()) {
             if (pattern.test(filePath)) {
                 return true;
@@ -72,8 +71,9 @@ export abstract class BaseReviewer implements IReviewer {
      * Extract file extension
      */
     protected getFileExtension(filePath: string): string {
-        const parts = filePath.split('.');
-        return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+        const parts = filePath.split(".");
+        const lastIndex = parts.length - 1;
+        return parts.length > 1 && parts[lastIndex] ? parts[lastIndex].toLowerCase() : "";
     }
 
     /**

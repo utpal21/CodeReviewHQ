@@ -1,9 +1,16 @@
 /**
  * PR Reviewer Service - Main orchestration service
- * Uses Facade Pattern to provide a simple interface for the review process
+ * Uses Facade Pattern to provide a simple interface for review process
  */
 
-import { ReviewContext, ReviewResult, ReviewComment, RiskLevel, Decision } from "../models/review.models.js";
+import {
+    ReviewContext,
+    ReviewResult,
+    ReviewComment,
+    RiskLevel,
+    Decision,
+    Severity,
+} from "../models/review.models.js";
 import { ReviewerRegistry } from "./reviewers/registry.js";
 
 export class PRReviewerService {
@@ -28,8 +35,8 @@ export class PRReviewerService {
         // Analyze comments to determine risk level and decision
         const analysis = this.analyzeComments(comments);
 
-        // Generate the final review result
-        return this.buildReviewResult(context, comments, analysis);
+        // Generate final review result
+        return this.buildReviewResult(comments, analysis);
     }
 
     /**
@@ -54,23 +61,41 @@ export class PRReviewerService {
                 acc[comment.severity] = (acc[comment.severity] || 0) + 1;
                 return acc;
             },
-            {} as Record<string, number>
+            {
+                [Severity.CRITICAL]: 0,
+                [Severity.MAJOR]: 0,
+                [Severity.MINOR]: 0,
+                [Severity.INFO]: 0,
+            } as Partial<Record<Severity, number>>
         );
 
         // Determine risk level
         let riskLevel = RiskLevel.LOW;
-        if (severityCounts["CRITICAL"] > 0) {
+        if ((severityCounts[Severity.CRITICAL] || 0) > 0) {
             riskLevel = RiskLevel.CRITICAL;
-        } else if (severityCounts["MAJOR"] > 0) {
+        } else if ((severityCounts[Severity.MAJOR] || 0) > 0) {
             riskLevel = RiskLevel.HIGH;
-        } else if (severityCounts["MINOR"] > 2) {
+        } else if ((severityCounts[Severity.MINOR] || 0) > 2) {
             riskLevel = RiskLevel.MEDIUM;
         }
 
         // Determine decision
         let decision = Decision.APPROVED;
-        if (severityCounts["CRITICAL"] > 0 || severityCounts["MAJOR"] > 0) {
+
+        // Critical issues always require changes
+        if ((severityCounts[Severity.CRITICAL] || 0) > 0) {
             decision = Decision.CHANGES_REQUESTED;
+        }
+        // Multiple major issues also require changes
+        else if ((severityCounts[Severity.MAJOR] || 0) >= 2) {
+            decision = Decision.CHANGES_REQUESTED;
+        }
+        // Single major issue or multiple minor issues comment only
+        else if (
+            (severityCounts[Severity.MAJOR] || 0) === 1 ||
+            (severityCounts[Severity.MINOR] || 0) >= 3
+        ) {
+            decision = Decision.COMMENT_ONLY;
         }
 
         // Generate summary
@@ -84,14 +109,14 @@ export class PRReviewerService {
      */
     private generateSummary(
         comments: ReviewComment[],
-        severityCounts: Record<string, number>,
+        severityCounts: Partial<Record<Severity, number>>,
         riskLevel: RiskLevel
     ): string {
         const totalIssues = comments.length;
-        const critical = severityCounts["CRITICAL"] || 0;
-        const major = severityCounts["MAJOR"] || 0;
-        const minor = severityCounts["MINOR"] || 0;
-        const info = severityCounts["INFO"] || 0;
+        const critical = severityCounts[Severity.CRITICAL] || 0;
+        const major = severityCounts[Severity.MAJOR] || 0;
+        const minor = severityCounts[Severity.MINOR] || 0;
+        const info = severityCounts[Severity.INFO] || 0;
 
         let summary = `Reviewed ${totalIssues} ${totalIssues === 1 ? "issue" : "issues"}. `;
 
@@ -124,10 +149,9 @@ export class PRReviewerService {
     }
 
     /**
-     * Build the final review result
+     * Build final review result
      */
     private buildReviewResult(
-        context: ReviewContext,
         comments: ReviewComment[],
         analysis: { riskLevel: RiskLevel; decision: Decision; summary: string }
     ): ReviewResult {
@@ -142,7 +166,8 @@ export class PRReviewerService {
 
         // Add decision-specific messages
         if (analysis.decision === Decision.APPROVED) {
-            result.approval_comment = "The implementation adheres to established coding standards and demonstrates architectural consistency. Approved for merge.";
+            result.approval_comment =
+                "The implementation adheres to established coding standards and demonstrates architectural consistency. Approved for merge.";
         } else if (analysis.decision === Decision.CHANGES_REQUESTED) {
             result.change_request_comment =
                 "Critical issues identified that compromise system integrity or security. Refactoring is required before these changes can be integrated.";
@@ -161,12 +186,12 @@ export class PRReviewerService {
         if (comments.length === 0) return 100;
 
         // Deduct points based on severity with a floor
-        const criticalCount = comments.filter(c => c.severity === "CRITICAL").length;
-        const majorCount = comments.filter(c => c.severity === "MAJOR").length;
+        const criticalCount = comments.filter((c) => c.severity === Severity.CRITICAL).length;
+        const majorCount = comments.filter((c) => c.severity === Severity.MAJOR).length;
 
-        score -= (criticalCount * 15);
-        score -= (majorCount * 5);
-        score -= (comments.length * 1);
+        score -= criticalCount * 15;
+        score -= majorCount * 5;
+        score -= comments.length * 1;
 
         // Cap deductions
         if (riskLevel === RiskLevel.CRITICAL) score = Math.min(score, 40);

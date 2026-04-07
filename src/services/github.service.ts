@@ -60,6 +60,15 @@ export interface GitHubRepository {
     description: string | null;
 }
 
+export interface GitHubTreeItem {
+    path: string;
+    mode: string;
+    type: string;
+    sha: string;
+    size?: number;
+    url?: string;
+}
+
 export class GitHubService {
     private octokit: Octokit;
     private defaultOwner: string;
@@ -77,17 +86,17 @@ export class GitHubService {
             hasRepo: !!repo,
             owner: owner,
             repo: repo,
-            tokenPrefix: githubToken ? `${githubToken.substring(0, 7)}...` : 'none',
-            tokenSource: token ? 'parameter' : (process.env.GITHUB_TOKEN ? 'environment' : 'none')
+            tokenPrefix: githubToken ? `${githubToken.substring(0, 7)}...` : "none",
+            tokenSource: token ? "parameter" : process.env.GITHUB_TOKEN ? "environment" : "none",
         });
 
         if (!githubToken) {
             throw new Error(
                 "GITHUB_TOKEN is required. Please provide one of:\n" +
-                "1. github_token parameter in tool arguments\n" +
-                "2. Authorization header (Bearer token)\n" +
-                "3. X-GitHub-Token header\n" +
-                "4. GITHUB_TOKEN environment variable (server configuration)"
+                    "1. github_token parameter in tool arguments\n" +
+                    "2. Authorization header (Bearer token)\n" +
+                    "3. X-GitHub-Token header\n" +
+                    "4. GITHUB_TOKEN environment variable (server configuration)"
             );
         }
 
@@ -116,7 +125,9 @@ export class GitHubService {
         const repoName = repo || this.defaultRepo;
 
         if (!repoOwner || !repoName) {
-            throw new Error("Repository owner and name are required (set GITHUB_OWNER and GITHUB_REPO env vars)");
+            throw new Error(
+                "Repository owner and name are required (set GITHUB_OWNER and GITHUB_REPO env vars)"
+            );
         }
 
         const response = await this.octokit.rest.pulls.list({
@@ -134,10 +145,7 @@ export class GitHubService {
     /**
      * Get repository details (including default branch)
      */
-    async getRepository(
-        owner?: string,
-        repo?: string
-    ): Promise<GitHubRepository> {
+    async getRepository(owner?: string, repo?: string): Promise<GitHubRepository> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
@@ -158,11 +166,7 @@ export class GitHubService {
     /**
      * Get a specific pull request
      */
-    async getPullRequest(
-        pullNumber: number,
-        owner?: string,
-        repo?: string
-    ): Promise<GitHubPR> {
+    async getPullRequest(pullNumber: number, owner?: string, repo?: string): Promise<GitHubPR> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
@@ -184,11 +188,7 @@ export class GitHubService {
     /**
      * Get all files in a repository recursively
      */
-    async getRepositoryTree(
-        owner?: string,
-        repo?: string,
-        ref = "main"
-    ): Promise<string[]> {
+    async getRepositoryTree(owner?: string, repo?: string, ref = "main"): Promise<string[]> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
@@ -201,8 +201,8 @@ export class GitHubService {
             });
 
             return response.data.tree
-                .filter((item: any) => item.type === "blob")
-                .map((item: any) => item.path || "");
+                .filter((item: GitHubTreeItem) => item.type === "blob")
+                .map((item: GitHubTreeItem) => item.path || "");
         } catch (error) {
             console.error("Failed to fetch repository tree:", error);
             return [];
@@ -235,11 +235,7 @@ export class GitHubService {
     /**
      * Get PR diff as string
      */
-    async getPullRequestDiff(
-        pullNumber: number,
-        owner?: string,
-        repo?: string
-    ): Promise<string> {
+    async getPullRequestDiff(pullNumber: number, owner?: string, repo?: string): Promise<string> {
         const repoOwner = owner || this.defaultOwner;
         const repoName = repo || this.defaultRepo;
 
@@ -358,7 +354,7 @@ export class GitHubService {
             body,
             event,
             commit_id: commitId,
-            comments: comments.map(c => ({
+            comments: comments.map((c) => ({
                 path: c.path,
                 line: c.line,
                 body: c.body,

@@ -4,7 +4,13 @@ import { PythonReviewer } from "./services/reviewers/python.reviewer.js";
 import { UniversalReviewer } from "./services/reviewers/universal.reviewer.js";
 import { ReviewerRegistry } from "./services/reviewers/registry.js";
 import { GitHubService } from "./services/github.service.js";
-import { ReviewContext, ReviewResult, RiskLevel, Decision } from "./models/review.models.js";
+import {
+    ReviewContext,
+    ReviewResult,
+    RiskLevel,
+    Decision,
+    Severity,
+} from "./models/review.models.js";
 import { logger } from "./utils/logger.js";
 import { AsyncLocalStorage } from "async_hooks";
 
@@ -24,28 +30,28 @@ let githubService: GitHubService | null = null;
  * 1. Per-request parameter (highest priority)
  * 2. Request headers (from middleware)
  * 3. Environment variable (server default)
- * 
+ *
  * @param tokenParam - Token provided as function parameter
  * @returns GitHub token or undefined if not found
  */
 export function getGitHubToken(tokenParam?: string): string | undefined {
-  // Priority 1: Per-request parameter
-  if (tokenParam) {
-    return tokenParam;
-  }
+    // Priority 1: Per-request parameter
+    if (tokenParam) {
+        return tokenParam;
+    }
 
-  // Priority 2: Request headers (from async local storage)
-  const store = requestContext.getStore();
-  if (store?.githubToken) {
-    return store.githubToken;
-  }
+    // Priority 2: Request headers (from async local storage)
+    const store = requestContext.getStore();
+    if (store?.githubToken) {
+        return store.githubToken;
+    }
 
-  // Priority 3: Environment variable (server default)
-  if (process.env.GITHUB_TOKEN) {
-    return process.env.GITHUB_TOKEN;
-  }
+    // Priority 3: Environment variable (server default)
+    if (process.env.GITHUB_TOKEN) {
+        return process.env.GITHUB_TOKEN;
+    }
 
-  return undefined;
+    return undefined;
 }
 
 /**
@@ -53,63 +59,67 @@ export function getGitHubToken(tokenParam?: string): string | undefined {
  * Throws error if GITHUB_TOKEN is not configured
  */
 export function validateGitHubConfig(tokenParam?: string): void {
-  const token = getGitHubToken(tokenParam);
+    const token = getGitHubToken(tokenParam);
 
-  if (!token) {
-    throw new Error(
-      "GITHUB_TOKEN is required. Please provide one of:\n" +
-      "1. github_token parameter in tool arguments (recommended for mcpize URL users)\n" +
-      "2. Authorization header (Bearer token)\n" +
-      "3. X-GitHub-Token header\n" +
-      "4. GITHUB_TOKEN environment variable (server configuration)\n\n" +
-      "For mcpize URL deployment, add github_token to your tool call:\n" +
-      '{ "github_token": "ghp_your_token_here", ... }'
-    );
-  }
+    if (!token) {
+        throw new Error(
+            "GITHUB_TOKEN is required. Please provide one of:\n" +
+                "1. github_token parameter in tool arguments (recommended for mcpize URL users)\n" +
+                "2. Authorization header (Bearer token)\n" +
+                "3. X-GitHub-Token header\n" +
+                "4. GITHUB_TOKEN environment variable (server configuration)\n\n" +
+                "For mcpize URL deployment, add github_token to your tool call:\n" +
+                '{ "github_token": "ghp_your_token_here", ... }'
+        );
+    }
 }
 
 /**
  * Get GitHub service instance
  */
 function getGitHubService(): GitHubService {
-  if (!githubService) {
-    try {
-      githubService = new GitHubService();
-    } catch (error) {
-      throw new Error("GitHub service not configured. Please set GITHUB_TOKEN environment variable.");
+    if (!githubService) {
+        try {
+            githubService = new GitHubService();
+        } catch {
+            throw new Error(
+                "GitHub service not configured. Please set GITHUB_TOKEN environment variable."
+            );
+        }
     }
-  }
-  return githubService;
+    return githubService;
 }
 
 /**
  * Initialize the PR Reviewer service
  */
 function getReviewerService(): PRReviewerService {
-  return new PRReviewerService();
+    return new PRReviewerService();
 }
 
 /**
  * Perform a comprehensive review on the provided code changes.
- * 
+ *
  * @param changes - Array of file changes to review
  * @returns Detailed review result with comments and decision
  */
-export async function reviewPR(changes: Array<{
-  file_path: string;
-  content: string;
-  language?: string;
-}>): Promise<ReviewResult> {
-  const context: ReviewContext = {
-    changes: changes.map((change) => ({
-      file_path: change.file_path,
-      content: change.content,
-      language: change.language,
-    })),
-  };
+export async function reviewPR(
+    changes: Array<{
+        file_path: string;
+        content: string;
+        language?: string;
+    }>
+): Promise<ReviewResult> {
+    const context: ReviewContext = {
+        changes: changes.map((change) => ({
+            file_path: change.file_path,
+            content: change.content,
+            language: change.language,
+        })),
+    };
 
-  const service = getReviewerService();
-  return await service.review(context);
+    const service = getReviewerService();
+    return await service.review(context);
 }
 
 /**
@@ -121,350 +131,378 @@ export const reviewPRAsync = reviewPR;
  * Review a single file
  */
 export async function reviewSingleFile(
-  filePath: string,
-  content: string,
-  language?: string
+    filePath: string,
+    content: string,
+    language?: string
 ): Promise<ReviewResult> {
-  return reviewPR([{ file_path: filePath, content, language }]);
+    return reviewPR([{ file_path: filePath, content, language }]);
 }
 
 /**
  * Get available reviewers
  */
 export function getAvailableReviewers(): string[] {
-  return ReviewerRegistry.getInstance().getAll().map((r) => r.getName());
+    return ReviewerRegistry.getInstance()
+        .getAll()
+        .map((r) => r.getName());
 }
 
 /**
  * Fetch pull requests from GitHub
  */
 export async function fetchPullRequests(
-  owner?: string,
-  repo?: string,
-  state: "open" | "closed" | "all" = "open",
-  limit = 10,
-  github_token?: string
-): Promise<Array<{
-  number: number;
-  title: string;
-  body: string | null;
-  html_url: string;
-  user: { login: string };
-  created_at: string;
-  updated_at: string;
-}>> {
-  // Use configured values from mcpize if not provided
-  const effectiveOwner = owner || process.env.GITHUB_OWNER;
-  const effectiveRepo = repo || process.env.GITHUB_REPO;
+    owner?: string,
+    repo?: string,
+    state: "open" | "closed" | "all" = "open",
+    limit = 10,
+    github_token?: string
+): Promise<
+    Array<{
+        number: number;
+        title: string;
+        body: string | null;
+        html_url: string;
+        user: { login: string };
+        created_at: string;
+        updated_at: string;
+    }>
+> {
+    // Use configured values from mcpize if not provided
+    const effectiveOwner = owner || process.env.GITHUB_OWNER;
+    const effectiveRepo = repo || process.env.GITHUB_REPO;
 
-  // Validate GitHub configuration before making API calls
-  validateGitHubConfig(github_token);
+    // Validate GitHub configuration before making API calls
+    validateGitHubConfig(github_token);
 
-  const token = getGitHubToken(github_token);
-  const service = new GitHubService(token);
-  const prs = await service.getPullRequests(effectiveOwner, effectiveRepo, state, limit);
+    const token = getGitHubToken(github_token);
+    const service = new GitHubService(token);
+    const prs = await service.getPullRequests(effectiveOwner, effectiveRepo, state, limit);
 
-  return prs.map(pr => ({
-    number: pr.number,
-    title: pr.title,
-    body: pr.body,
-    html_url: pr.html_url,
-    user: pr.user,
-    created_at: pr.created_at,
-    updated_at: pr.updated_at,
-  }));
+    return prs.map((pr) => ({
+        number: pr.number,
+        title: pr.title,
+        body: pr.body,
+        html_url: pr.html_url,
+        user: pr.user,
+        created_at: pr.created_at,
+        updated_at: pr.updated_at,
+    }));
 }
 
 /**
  * Review a GitHub pull request
  */
 export async function reviewGitHubPR(
-  pullNumber: number,
-  owner?: string,
-  repo?: string,
-  postComment = false,
-  github_token?: string
+    pullNumber: number,
+    owner?: string,
+    repo?: string,
+    postComment = false,
+    github_token?: string
 ): Promise<ReviewResult & { pr_number: number }> {
-  // Use configured values from mcpize if not provided
-  const effectiveOwner = owner || process.env.GITHUB_OWNER;
-  const effectiveRepo = repo || process.env.GITHUB_REPO;
+    // Use configured values from mcpize if not provided
+    const effectiveOwner = owner || process.env.GITHUB_OWNER;
+    const effectiveRepo = repo || process.env.GITHUB_REPO;
 
-  // Validate GitHub configuration before making API calls
-  validateGitHubConfig(github_token);
+    // Validate GitHub configuration before making API calls
+    validateGitHubConfig(github_token);
 
-  const token = getGitHubToken(github_token);
-  const github = new GitHubService(token);
+    const token = getGitHubToken(github_token);
+    const github = new GitHubService(token);
 
-  logger.info(`Starting review for PR #${pullNumber} in ${effectiveOwner || 'default'}/${effectiveRepo || 'default'}`);
+    logger.info(
+        `Starting review for PR #${pullNumber} in ${effectiveOwner || "default"}/${effectiveRepo || "default"}`
+    );
 
-  const pr = await github.getPullRequest(pullNumber, effectiveOwner, effectiveRepo);
-  const headSha = pr.head.sha;
+    const pr = await github.getPullRequest(pullNumber, effectiveOwner, effectiveRepo);
+    const headSha = pr.head.sha;
 
-  const files = await github.getPullRequestFiles(pullNumber, effectiveOwner, effectiveRepo);
-  const changes: Array<{ file_path: string; content: string; language?: string }> = [];
+    const files = await github.getPullRequestFiles(pullNumber, effectiveOwner, effectiveRepo);
+    const changes: Array<{ file_path: string; content: string; language?: string }> = [];
 
-  for (const file of files) {
-    if (file.status === "deleted") continue;
+    for (const file of files) {
+        if (file.status === "deleted") continue;
 
-    try {
-      const content = await github.getFileContent(file.filename, effectiveOwner, effectiveRepo, headSha);
-      changes.push({
-        file_path: file.filename,
-        content,
-        language: getLanguageFromFilename(file.filename),
-      });
-    } catch (error) {
-      logger.error(`Failed to fetch content for ${file.filename}`, error);
+        try {
+            const content = await github.getFileContent(
+                file.filename,
+                effectiveOwner,
+                effectiveRepo,
+                headSha
+            );
+            changes.push({
+                file_path: file.filename,
+                content,
+                language: getLanguageFromFilename(file.filename),
+            });
+        } catch (error) {
+            logger.error(`Failed to fetch content for ${file.filename}`, error);
+        }
     }
-  }
 
-  const result = await reviewPR(changes);
+    const result = await reviewPR(changes);
 
-  if (postComment) {
-    await postReviewComment(pullNumber, result, effectiveOwner, effectiveRepo, headSha, github);
-  }
+    if (postComment) {
+        await postReviewComment(pullNumber, result, effectiveOwner, effectiveRepo, headSha, github);
+    }
 
-  return { ...result, pr_number: pullNumber };
+    return { ...result, pr_number: pullNumber };
 }
 
 /**
  * Review an entire repository
  */
 export async function reviewRepository(
-  owner?: string,
-  repo?: string,
-  branch?: string,
-  maxFiles = 50,
-  github_token?: string
+    owner?: string,
+    repo?: string,
+    branch?: string,
+    maxFiles = 50,
+    github_token?: string
 ): Promise<ReviewResult> {
-  // Validate GitHub configuration before making API calls
-  validateGitHubConfig(github_token);
+    // Validate GitHub configuration before making API calls
+    validateGitHubConfig(github_token);
 
-  const token = getGitHubToken(github_token);
-  const github = new GitHubService(token);
-  const repoOwner = owner || process.env.GITHUB_OWNER;
-  const repoName = repo || process.env.GITHUB_REPO;
+    const token = getGitHubToken(github_token);
+    const github = new GitHubService(token);
+    const repoOwner = owner || process.env.GITHUB_OWNER;
+    const repoName = repo || process.env.GITHUB_REPO;
 
-  if (!repoOwner || !repoName) {
-    throw new Error("Repository owner and name must be provided or configured in environment.");
-  }
-
-  logger.info(`Starting full repository review for ${repoOwner}/${repoName}`);
-
-  const repoInfo = await github.getRepository(repoOwner, repoName);
-  const ref = branch || repoInfo.default_branch;
-
-  const tree = await github.getRepositoryTree(repoOwner, repoName, ref);
-
-  const filesToReview = tree.filter((path) => {
-    const language = getLanguageFromFilename(path);
-    return language &&
-      !path.includes('node_modules') &&
-      !path.includes('venv') &&
-      !path.includes('.venv') &&
-      !path.includes('dist') &&
-      !path.includes('.next');
-  }).slice(0, maxFiles);
-
-  logger.info(`Selected ${filesToReview.length} files for review out of ${tree.length} total objects.`);
-
-  const changes: Array<{ file_path: string; content: string; language?: string }> = [];
-  for (const path of filesToReview) {
-    try {
-      const content = await github.getFileContent(path, repoOwner, repoName, ref);
-      changes.push({
-        file_path: path,
-        content,
-        language: getLanguageFromFilename(path),
-      });
-    } catch (error) {
-      logger.error(`Failed to fetch content for ${path}`, error);
+    if (!repoOwner || !repoName) {
+        throw new Error("Repository owner and name must be provided or configured in environment.");
     }
-  }
 
-  return await reviewPR(changes);
+    logger.info(`Starting full repository review for ${repoOwner}/${repoName}`);
+
+    const repoInfo = await github.getRepository(repoOwner, repoName);
+    const ref = branch || repoInfo.default_branch;
+
+    const tree = await github.getRepositoryTree(repoOwner, repoName, ref);
+
+    const filesToReview = tree
+        .filter((path) => {
+            const language = getLanguageFromFilename(path);
+            return (
+                language &&
+                !path.includes("node_modules") &&
+                !path.includes("venv") &&
+                !path.includes(".venv") &&
+                !path.includes("dist") &&
+                !path.includes(".next")
+            );
+        })
+        .slice(0, maxFiles);
+
+    logger.info(
+        `Selected ${filesToReview.length} files for review out of ${tree.length} total objects.`
+    );
+
+    const changes: Array<{ file_path: string; content: string; language?: string }> = [];
+    for (const path of filesToReview) {
+        try {
+            const content = await github.getFileContent(path, repoOwner, repoName, ref);
+            changes.push({
+                file_path: path,
+                content,
+                language: getLanguageFromFilename(path),
+            });
+        } catch (error) {
+            logger.error(`Failed to fetch content for ${path}`, error);
+        }
+    }
+
+    return await reviewPR(changes);
 }
 
 /**
  * Batch review multiple GitHub pull requests
  */
 export async function reviewMultiplePRs(
-  pullNumbers: number[],
-  owner?: string,
-  repo?: string,
-  postComments = false
+    pullNumbers: number[],
+    owner?: string,
+    repo?: string,
+    postComments = false
 ): Promise<Array<ReviewResult & { pr_number: number }>> {
-  const results: Array<ReviewResult & { pr_number: number }> = [];
+    const results: Array<ReviewResult & { pr_number: number }> = [];
 
-  for (const pullNumber of pullNumbers) {
-    try {
-      const result = await reviewGitHubPR(pullNumber, owner, repo, postComments);
-      results.push(result);
-    } catch (error) {
-      logger.error(`Failed to review PR #${pullNumber}`, error);
-      results.push({
-        summary: `Failed to review PR #${pullNumber}`,
-        risk_level: RiskLevel.LOW,
-        decision: Decision.COMMENT_ONLY,
-        confidence_score: 0,
-        review_comments: [],
-        suggested_improvements: [],
-        pr_number: pullNumber,
-      });
+    for (const pullNumber of pullNumbers) {
+        try {
+            const result = await reviewGitHubPR(pullNumber, owner, repo, postComments);
+            results.push(result);
+        } catch (error) {
+            logger.error(`Failed to review PR #${pullNumber}`, error);
+            results.push({
+                summary: `Failed to review PR #${pullNumber}`,
+                risk_level: RiskLevel.LOW,
+                decision: Decision.COMMENT_ONLY,
+                confidence_score: 0,
+                review_comments: [],
+                suggested_improvements: [],
+                pr_number: pullNumber,
+            });
+        }
     }
-  }
 
-  return results;
+    return results;
 }
 
 /**
  * Post review comment to GitHub PR
  */
 async function postReviewComment(
-  pullNumber: number,
-  result: ReviewResult,
-  owner?: string,
-  repo?: string,
-  commitId?: string,
-  github?: GitHubService
+    pullNumber: number,
+    result: ReviewResult,
+    owner?: string,
+    repo?: string,
+    commitId?: string,
+    github?: GitHubService
 ): Promise<void> {
-  const githubService = github || getGitHubService();
+    const githubService = github || getGitHubService();
 
-  let comment = `## AI Technical Analysis\n\n`;
-  comment += `**Risk Assessment:** ${result.risk_level}\n`;
-  comment += `**Integration Decision:** ${result.decision}\n`;
-  comment += `**Analysis Confidence:** ${result.confidence_score}%\n\n`;
-  comment += `### Summary\n${result.summary}\n\n`;
+    let comment = `## AI Technical Analysis\n\n`;
+    comment += `**Risk Assessment:** ${result.risk_level}\n`;
+    comment += `**Integration Decision:** ${result.decision}\n`;
+    comment += `**Analysis Confidence:** ${result.confidence_score}%\n\n`;
+    comment += `### Summary\n${result.summary}\n\n`;
 
-  if (result.review_comments.length > 0) {
-    comment += `### Technical Findings\n\n`;
-    result.review_comments.forEach((c, i) => {
-      comment += `#### ${i + 1}. [${c.severity}] ${c.category}\n`;
-      comment += `**Location:** \`${c.file_path}:${c.line_number}\`\n`;
-      comment += `${c.comment}\n`;
-      if (c.suggestion) {
-        comment += `**Recommendation:** ${c.suggestion}\n`;
-      }
-      if (c.example_fix) {
-        const lang = getLanguageFromFilename(c.file_path) || 'typescript';
-        comment += `**Refactoring Example:**\n\`\`\`${lang}\n${c.example_fix}\n\`\`\`\n`;
-      }
-      comment += `\n`;
-    });
-  }
+    if (result.review_comments.length > 0) {
+        comment += `### Technical Findings\n\n`;
+        result.review_comments.forEach((c, i) => {
+            comment += `#### ${i + 1}. [${c.severity}] ${c.category}\n`;
+            comment += `**Location:** \`${c.file_path}:${c.line_number}\`\n`;
+            comment += `${c.comment}\n`;
+            if (c.suggestion) {
+                comment += `**Recommendation:** ${c.suggestion}\n`;
+            }
+            if (c.example_fix) {
+                const lang = getLanguageFromFilename(c.file_path) || "typescript";
+                comment += `**Refactoring Example:**\n\`\`\`${lang}\n${c.example_fix}\n\`\`\`\n`;
+            }
+            comment += `\n`;
+        });
+    }
 
-  if (result.suggested_improvements.length > 0) {
-    comment += `### Strategic Improvements\n\n`;
-    result.suggested_improvements.forEach((improvement, i) => {
-      comment += `${i + 1}. ${improvement}\n`;
-    });
-  }
+    if (result.suggested_improvements.length > 0) {
+        comment += `### Strategic Improvements\n\n`;
+        result.suggested_improvements.forEach((improvement, i) => {
+            comment += `${i + 1}. ${improvement}\n`;
+        });
+    }
 
-  if (result.decision === Decision.APPROVED && result.approval_comment) {
-    comment += `\n**Approval Note:** ${result.approval_comment}`;
-  } else if (result.decision === Decision.CHANGES_REQUESTED && result.change_request_comment) {
-    comment += `\n**Required Revisions:** ${result.change_request_comment}`;
-  }
+    if (result.decision === Decision.APPROVED && result.approval_comment) {
+        comment += `\n**Approval Note:** ${result.approval_comment}`;
+    } else if (result.decision === Decision.CHANGES_REQUESTED && result.change_request_comment) {
+        comment += `\n**Required Revisions:** ${result.change_request_comment}`;
+    }
 
-  let event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" = "COMMENT";
-  if (result.decision === Decision.APPROVED) {
-    event = "APPROVE";
-  } else if (result.decision === Decision.CHANGES_REQUESTED) {
-    event = "REQUEST_CHANGES";
-  }
+    let event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" = "COMMENT";
+    if (result.decision === Decision.APPROVED) {
+        event = "APPROVE";
+    } else if (result.decision === Decision.CHANGES_REQUESTED) {
+        event = "REQUEST_CHANGES";
+    }
 
-  let addressableLines: Map<string, Set<number>> = new Map();
-  try {
-    const diff = await githubService.getPullRequestDiff(pullNumber, owner, repo);
-    addressableLines = parseDiffForAddressableLines(diff);
-  } catch (error) {
-    logger.warn(`Failed to fetch diff for comment filtering: PR #${pullNumber}`, error);
-  }
+    let addressableLines: Map<string, Set<number>> = new Map();
+    try {
+        const diff = await githubService.getPullRequestDiff(pullNumber, owner, repo);
+        addressableLines = parseDiffForAddressableLines(diff);
+    } catch (error) {
+        logger.warn(
+            `Failed to fetch diff for comment filtering: PR #${pullNumber}`,
+            error as Record<string, unknown>
+        );
+    }
 
-  const githubReviewComments = result.review_comments
-    .filter(c => {
-      const fileLines = addressableLines.get(c.file_path);
-      const isImportant = c.severity === "MAJOR" || c.severity === "CRITICAL";
-      return fileLines && fileLines.has(c.line_number) && isImportant;
-    })
-    .slice(0, 5)
-    .map(c => ({
-      path: c.file_path,
-      line: c.line_number,
-      body: `**${c.severity}** (Category: ${c.category})\n${c.comment}${c.suggestion ? `\n\n**Recommendation:** ${c.suggestion}` : ''}${c.example_fix ? `\n\n**Refactoring Example:**\n\`\`\`typescript\n${c.example_fix}\n\`\`\`` : ''}`,
-      side: "RIGHT" as const
-    }));
+    const githubReviewComments = result.review_comments
+        .filter((c) => {
+            const fileLines = addressableLines.get(c.file_path);
+            const isImportant = c.severity === Severity.MAJOR || c.severity === Severity.CRITICAL;
+            return fileLines && fileLines.has(c.line_number) && isImportant;
+        })
+        .slice(0, 5)
+        .map((c) => ({
+            path: c.file_path,
+            line: c.line_number,
+            body: `**${c.severity}** (Category: ${c.category})\n${c.comment}${c.suggestion ? `\n\n**Recommendation:** ${c.suggestion}` : ""}${c.example_fix ? `\n\n**Refactoring Example:**\n\`\`\`typescript\n${c.example_fix}\n\`\`\`` : ""}`,
+            side: "RIGHT" as const,
+        }));
 
-  await githubService.createReview(pullNumber, comment, event, githubReviewComments, owner, repo, commitId);
+    await githubService.createReview(
+        pullNumber,
+        comment,
+        event,
+        githubReviewComments,
+        owner,
+        repo,
+        commitId
+    );
 }
 
 /**
  * Parse unified diff to find lines that can be commented on
  */
 function parseDiffForAddressableLines(diff: string): Map<string, Set<number>> {
-  const fileLines = new Map<string, Set<number>>();
-  const lines = diff.split('\n');
-  let currentFile = '';
-  let currentLine = 0;
+    const fileLines = new Map<string, Set<number>>();
+    const lines = diff.split("\n");
+    let currentFile = "";
+    let currentLine = 0;
 
-  for (const line of lines) {
-    if (line.startsWith('+++ b/')) {
-      currentFile = line.substring(6);
-      fileLines.set(currentFile, new Set());
-    } else if (line.startsWith('@@')) {
-      const match = line.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
-      if (match) {
-        currentLine = parseInt(match[1], 10) - 1;
-      }
-    } else if (line.startsWith('+')) {
-      currentLine++;
-      if (currentFile) {
-        fileLines.get(currentFile)?.add(currentLine);
-      }
-    } else if (line.startsWith(' ')) {
-      currentLine++;
+    for (const line of lines) {
+        if (line.startsWith("+++ b/")) {
+            currentFile = line.substring(6);
+            fileLines.set(currentFile, new Set());
+        } else if (line.startsWith("@@")) {
+            const match = line.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
+            if (match && match[1]) {
+                currentLine = parseInt(match[1], 10) - 1;
+            }
+        } else if (line.startsWith("+")) {
+            currentLine++;
+            if (currentFile) {
+                fileLines.get(currentFile)?.add(currentLine);
+            }
+        } else if (line.startsWith(" ")) {
+            currentLine++;
+        }
     }
-  }
 
-  return fileLines;
+    return fileLines;
 }
 
 /**
  * Detect programming language from filename
  */
 function getLanguageFromFilename(filename: string): string | undefined {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  const languageMap: Record<string, string> = {
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'py': 'python',
-    'java': 'java',
-    'go': 'go',
-    'rb': 'ruby',
-    'php': 'php',
-    'c': 'c',
-    'cpp': 'cpp',
-    'h': 'c',
-    'hpp': 'cpp',
-    'cs': 'csharp',
-    'swift': 'swift',
-    'kt': 'kotlin',
-    'scala': 'scala',
-    'rs': 'rust',
-  };
-  return languageMap[ext || ''];
+    const ext = filename.split(".").pop()?.toLowerCase();
+    const languageMap: Record<string, string> = {
+        ts: "typescript",
+        tsx: "typescript",
+        js: "javascript",
+        jsx: "javascript",
+        py: "python",
+        java: "java",
+        go: "go",
+        rb: "ruby",
+        php: "php",
+        c: "c",
+        cpp: "cpp",
+        h: "c",
+        hpp: "cpp",
+        cs: "csharp",
+        swift: "swift",
+        kt: "kotlin",
+        scala: "scala",
+        rs: "rust",
+    };
+    return languageMap[ext || ""];
 }
 
 /**
  * Check if GitHub is configured
  */
 export function isGitHubConfigured(): boolean {
-  try {
-    const service = new GitHubService();
-    return service.isConfigured();
-  } catch {
-    return false;
-  }
+    try {
+        const service = new GitHubService();
+        return service.isConfigured();
+    } catch {
+        return false;
+    }
 }

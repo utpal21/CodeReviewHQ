@@ -22,7 +22,7 @@ export class TypeScriptReviewer extends BaseReviewer {
     /**
      * Review TypeScript/JavaScript code
      */
-    async review(context: ReviewContext): Promise<ReviewComment[]> {
+    review(context: ReviewContext): Promise<ReviewComment[]> {
         const comments: ReviewComment[] = [];
 
         for (const change of context.changes) {
@@ -33,7 +33,7 @@ export class TypeScriptReviewer extends BaseReviewer {
             comments.push(...this.analyzeCode(change));
         }
 
-        return comments;
+        return Promise.resolve(comments);
     }
 
     /**
@@ -46,6 +46,8 @@ export class TypeScriptReviewer extends BaseReviewer {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const lineNumber = i + 1;
+
+            if (!line) continue;
 
             // Check for console.log statements
             if (this.hasConsoleLog(line)) {
@@ -116,7 +118,7 @@ export class TypeScriptReviewer extends BaseReviewer {
                         Category.CODE_QUALITY,
                         Severity.INFO,
                         "TODO comment found - ensure this is addressed before merging",
-                        "Resolve the TODO or create an issue ticket",
+                        "Resolve TODO or create an issue ticket",
                         "// TODO: Implement feature X"
                     )
                 );
@@ -146,7 +148,7 @@ export class TypeScriptReviewer extends BaseReviewer {
                         Category.DESIGN,
                         Severity.MINOR,
                         "Function appears to be large (>50 lines)",
-                        "Consider breaking down the function into smaller, more focused functions"
+                        "Consider breaking down function into smaller, more focused functions"
                     )
                 );
             }
@@ -204,6 +206,9 @@ export class TypeScriptReviewer extends BaseReviewer {
     private hasHardcodedSecret(line: string): boolean {
         const patterns = [
             /\b(password|pwd|secret|api[_-]?key)\s*=\s*['"`][^'"`]+['"`]/i,
+            /\w*pwd\w*\s*=\s*['"`][^'"`]+['"`]/i,
+            /\w*secret\w*\s*=\s*['"`][^'"`]+['"`]/i,
+            /\w*key\w*\s*=\s*['"`][^'"`]{10,}['"`]/i,
             /token\s*=\s*['"`][^'"`]{20,}['"`]/i,
         ];
 
@@ -225,6 +230,8 @@ export class TypeScriptReviewer extends BaseReviewer {
 
         for (let i = startIndex; i < lines.length; i++) {
             const currentLine = lines[i];
+
+            if (!currentLine) continue;
 
             if (!inFunction) {
                 if (currentLine.includes("{")) {

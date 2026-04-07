@@ -25,5 +25,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Coverage
+coverage/
+*.lcov
+
 # TypeScript
 *.tsbuildinfo
